@@ -1,7 +1,7 @@
 CC=cc
 
 CPPFLAGS=
-CFLAGS= -Iserver/include
+CFLAGS= -std=c99 -Wall -Wextra -O2 -Iserver/include
 
 DAE=paradosd
 
