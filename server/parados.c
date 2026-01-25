@@ -21,9 +21,9 @@
 
 #include "config.h"
 #include "http.h"
+#include "log.h"
 
 void die(const char* s, int e);
-void logmsg(bool verbose, const char* tag, const char* fmt, ...);
 void run(void);
 void setup(void);
 int write_all(int fd, const void* buf, size_t n);
