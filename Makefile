@@ -1,5 +1,4 @@
 CC ?= cc
-
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L
 CFLAGS = -std=c99 -Wall -Wextra -O2 -Iserver/include
 OUT = parados
@@ -7,7 +6,7 @@ OUT = parados
 all: parados
 
 parados:
-	$(CC) server/*.c -o $(OUT)
+	$(CC) $(CPPFLAGS) $(CFLAGS) server/*.c -o $(OUT)
 
 clean:
 	rm -f $(OUT)

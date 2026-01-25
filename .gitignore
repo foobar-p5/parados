@@ -3,3 +3,5 @@ paradosd
 parados
 *.o
 *.swp
+config.h
+
