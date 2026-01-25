@@ -6,6 +6,7 @@
 */
 
 #include <errno.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -49,14 +50,29 @@ void run(void)
 		}
 		LOG(verbose_log, "CORE", "connection accepted");
 
-		(void)http_handle(c);
-		shutdown(c, SHUT_WR);
+		pid_t pid = fork();
+		if (pid < 0) {
+			close(c);
+			continue;
+		}
+
+		if (pid == 0) {
+			(void)http_handle(c);
+			shutdown(c, SHUT_WR);
+			close(c);
+			_exit(EXIT_SUCCESS);
+		}
+
 		close(c);
 	}
 }
 
 void setup(void)
 {
+	signal(SIGPIPE, SIG_IGN); /* ignore SIGPIPE */
+	signal(SIGCHLD, SIG_IGN); /* reap children to prevent
+								 them to turn into zombies */
+
 	int ret = 1;
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0)
