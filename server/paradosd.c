@@ -1,3 +1,9 @@
+/*  parados - simple media server
+	
+	this software is licensed under ISC
+	check LICENCE for more details
+*/
+
 #include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -10,10 +16,9 @@
 #include <netinet/in.h>
 
 #include "config.h"
+#include "http.h"
 
 void die(const char* s, int e);
-int read_reqline(int c, char* method, size_t msz, char* path, size_t psz);
-void reply_text(int c, const char* status, const char* body);
 void run(void);
 void setup(void);
 int write_all(int fd, const void* buf, size_t n);
@@ -26,64 +31,6 @@ void die(const char* s, int e)
 	exit(e);
 }
 
-int read_reqline(int c, char* method, size_t msz, char* path, size_t psz)
-{
-	char buf[HTTP_REQ_MAX];
-	size_t used = 0;
-
-	for (;;) {
-		if (used + 1 >= sizeof(buf))
-			return -1;
-
-		ssize_t r = read(c, buf + used, sizeof(buf) - 1 - used);
-		if (r <= 0)
-			return -1;
-
-		used += (size_t)r;
-		buf[used] = '\0';
-
-		char* eol = strstr(buf, "\r\n");
-		if (eol) {
-			*eol = '\0';
-			break;
-		}
-	}
-
-	if (sscanf(buf, "%15s %1023s", method, path) != 2)
-		return -1;
-
-	method[msz-1] = '\0';
-	path[psz-1] = '\0';
-
-	return 0;
-}
-
-void reply_text(int c, const char* status, const char* body)
-{
-	char resp[HTTP_RESP_MAX];
-	int n = snprintf(
-		resp, sizeof(resp),
-
-		"%s"
-		"Content-Type: text/plain\r\n"
-		"Content-Length: %zu\r\n"
-		"Connection: close\r\n"
-		"\r\n"
-		"%s",
-
-		status,
-		strlen(body), body
-	);
-
-	if (n < 0)
-		return;
-
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
-
-	(void)write_all(c, resp, (size_t)n);
-}
-
 void run(void)
 {
 	for (;;) {
@@ -94,31 +41,7 @@ void run(void)
 			continue;
 		}
 
-		char method[16];
-		char path[1024];
-
-		if (read_reqline(c, method, sizeof(method), path, sizeof(path)) < 0) {
-			reply_text(c, "HTTP/1.1 400 Bad Request\r\n", "bad request\n");
-			shutdown(c, SHUT_WR);
-			close(c);
-			continue;
-		}
-
-		if (strcmp(method, "GET") != 0) {
-			reply_text(c, "HTTP/1.1 405 Method Not Allowed\r\n", "method not allowed\n");
-			shutdown(c, SHUT_WR);
-			close(c);
-			continue;
-		}
-
-		if (strcmp(path, "/ping") == 0) {
-			reply_text(c, "HTTP/1.1 200 OK\r\n", "ok\n");
-			shutdown(c, SHUT_WR);
-			close(c);
-			continue;
-		}
-
-		reply_text(c, "HTTP/1.1 404 Not Found\r\n", "not found\n");
+		(void)http_handle(c);
 		shutdown(c, SHUT_WR);
 		close(c);
 	}
@@ -154,25 +77,6 @@ void setup(void)
 
 	if (verbose_log)
 		printf("listening on %s:%d\n", server_addr, server_port);
-}
-
-int write_all(int fd, const void* buf, size_t n)
-{
-	const char* p = buf;
-
-	while (n > 0) {
-		ssize_t w = write(fd, p, n);
-		if (w < 0) {
-			if (errno == EINTR)
-				continue;
-			return -1;
-		}
-
-		p += (size_t)w;
-		n -= (size_t)w;
-	}
-
-	return 0;
 }
 
 int main(void)

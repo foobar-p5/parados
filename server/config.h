@@ -1,3 +1,6 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
 #include <stdbool.h>
 
 static const char*  media_dir     = "/path/to/media";
@@ -10,4 +13,6 @@ enum {
 	HTTP_RESP_MAX  = 512,
 	LISTEN_BACKLOG = 64,
 };
+
+#endif /* CONFIG_H */
 
