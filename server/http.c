@@ -24,39 +24,39 @@ int http_handle(int c)
 		reply_text(c, HTTP_400, "bad request\n");
 		return -1;
 	}
-	logmsg(verbose_log, "HTTP", "request: %s %s", method, path);
+	LOG(verbose_log, "HTTP", "request: %s %s", method, path);
 
 	if (strcmp(method, "GET") != 0) {
-		logmsg(verbose_log, "HTTP", "method not allowed: %s", method);
+		LOG(verbose_log, "HTTP", "method not allowed: %s", method);
 		reply_text(c, HTTP_405, "method not allowed\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
-		logmsg(verbose_log, "HTTP", "route /ping");
+		LOG(verbose_log, "HTTP", "route /ping");
 		reply_text(c, HTTP_200, "ok\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/library") == 0) {
-		logmsg(verbose_log, "HTTP", "route /library");
+		LOG(verbose_log, "HTTP", "route /library");
 		struct library l;
 		struct json j;
 
 		if (scan_library(&l, media_dir) < 0) {
-			logmsg(verbose_log, "SCAN", "scan failed");
+			LOG(verbose_log, "SCAN", "scan failed");
 			reply_text(c, HTTP_500, "scan failed\n");
 			return -1;
 		}
-		logmsg(verbose_log, "SCAN", "found %zu items", l.len);
+		LOG(verbose_log, "SCAN", "found %zu items", l.len);
 
 		if (json_library(&j, &l) < 0) {
-			logmsg(verbose_log, "JSON", "encode failed");
+			LOG(verbose_log, "JSON", "encode failed");
 			scan_library_free(&l);
 			reply_text(c, HTTP_500, "json failed\n");
 			return -1;
 		}
-		logmsg(verbose_log, "JSON", "encoded %zu bytes", j.len);
+		LOG(verbose_log, "JSON", "encoded %zu bytes", j.len);
 
 		scan_library_free(&l);
 		reply_json(c, HTTP_200, j.buf, j.len);
@@ -65,7 +65,7 @@ int http_handle(int c)
 		return 0;
 	}
 
-	logmsg(verbose_log, "HTTP", "route not found: %s", path);
+	LOG(verbose_log, "HTTP", "route not found: %s", path);
 	reply_text(c, HTTP_404, "not found\n");
 
 	return 0;

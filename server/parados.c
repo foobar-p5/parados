@@ -36,36 +36,6 @@ void die(const char* s, int e)
 	exit(e);
 }
 
-void logmsg(bool verbose, const char* tag, const char* fmt, ...)
-{
-	if (!verbose)
-		return;
-
-	time_t t = time(NULL);
-	struct tm tmv;
-	char ts[9];
-
-	if (localtime_r(&t, &tmv))
-		snprintf(
-			ts, sizeof(ts),
-			"%02d:%02d:%02d",
-			tmv.tm_hour,
-			tmv.tm_min,
-			tmv.tm_sec
-		);
-	else
-		snprintf(ts, sizeof(ts), "??:??:??");
-
-	fprintf(stderr, "%s [%s] ", ts, tag);
-
-	va_list ap;
-	va_start(ap, fmt);
-	vfprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	fputc('\n', stderr);
-}
-
 void run(void)
 {
 	for (;;) {
@@ -75,7 +45,7 @@ void run(void)
 				continue;
 			continue;
 		}
-		logmsg(verbose_log, "CORE", "connection accepted");
+		LOG(verbose_log, "CORE", "connection accepted");
 
 		(void)http_handle(c);
 		shutdown(c, SHUT_WR);
@@ -111,7 +81,7 @@ void setup(void)
 	if (ret < 0)
 		die("listen", EXIT_FAILURE);
 
-	logmsg(verbose_log, "CORE", "listening on %s:%d", server_addr, server_port);
+	LOG(verbose_log, "CORE", "listening on %s:%d", server_addr, server_port);
 }
 
 int main(void)

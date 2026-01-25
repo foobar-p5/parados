@@ -25,7 +25,7 @@ static int json_grow(struct json* j, size_t need)
 
 	char* nb = realloc(j->buf, ncap);
 	if (!nb) {
-		logmsg(verbose_log, "JSON", "out of memory");
+		LOG(verbose_log, "JSON", "out of memory");
 		return -1;
 	}
 

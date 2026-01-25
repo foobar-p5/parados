@@ -36,7 +36,7 @@ static int join_path(char* out, size_t outsz, const char* a, const char* b)
 	size_t bl = strlen(b);
 
 	if (al + 1 + bl + 1 > outsz) {
-		logmsg(verbose_log, "SCAN", "path too long");
+		LOG(verbose_log, "SCAN", "path too long");
 		return -1;
 	}
 
@@ -54,7 +54,7 @@ static int library_push(struct library* l, const char* rel)
 		size_t ncap = l->cap ? (l->cap * 2) : 64;
 		struct item* ni = realloc(l->items, ncap * sizeof(*ni));
 		if (!ni) {
-			logmsg(verbose_log, "SCAN", "out of memory");
+			LOG(verbose_log, "SCAN", "out of memory");
 			return -1;
 		}
 		l->items = ni;
@@ -89,7 +89,7 @@ static int scan_dir(struct library* l, const char* root, const char* rel)
 
 	d = opendir(full);
 	if (!d) {
-		logmsg(verbose_log, "SCAN", "opendir failed: %s", full);
+		LOG(verbose_log, "SCAN", "opendir failed: %s", full);
 		return -1;
 	}
 

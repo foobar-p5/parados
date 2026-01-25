@@ -1,12 +1,15 @@
 CC ?= cc
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L
-CFLAGS = -std=c99 -Wall -Wextra -O2 -Iserver/include
+CFLAGS = -std=c99 -Wall -Wextra -Iserver/include
 OUT = parados
 
-all: parados
+all: release
 
-parados:
-	$(CC) $(CPPFLAGS) $(CFLAGS) server/*.c -o $(OUT)
+release:
+	$(CC) $(CPPFLAGS) -DNDEBUG $(CFLAGS) -O2 server/*.c -o $(OUT)
+
+debug:
+	$(CC) $(CPPFLAGS) -DDEBUG $(CFLAGS) -g server/*.c -o $(OUT)
 
 clean:
 	rm -f $(OUT)
