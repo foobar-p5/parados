@@ -5,8 +5,10 @@
 #define HTTP_400    "HTTP/1.1 400 Bad Request\r\n"
 #define HTTP_404    "HTTP/1.1 404 Not Found\r\n"
 #define HTTP_405    "HTTP/1.1 405 Method Not Allowed\r\n"
+#define HTTP_500    "HTTP/1.1 500 Internal Server Error\r\n"
 
 #define HTTP_TEXT   "Content-Type: text/plain\r\n"
+#define HTTP_JSON   "Content-Type: application/json\r\n"
 #define HTTP_CLOSE  "Connection: close\r\n"
 #define HTTP_LENGTH "Content-Length: %zu\r\n"
 

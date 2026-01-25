@@ -6,10 +6,12 @@
 
 #include "config.h"
 #include "http.h"
-
-void logmsg(bool verbose, const char* tag, const char* fmt, ...);
+#include "json.h"
+#include "log.h"
+#include "scan.h"
 
 static int read_reqline(int c, char* method, size_t msz, char* path, size_t psz);
+static void reply_json(int c, const char* status, const char* body, size_t len);
 static void reply_text(int c, const char* status, const char* body);
 static int write_all(int fd, const void* buf, size_t n);
 
@@ -36,6 +38,33 @@ int http_handle(int c)
 		return 0;
 	}
 
+	if (strcmp(path, "/library") == 0) {
+		logmsg(verbose_log, "HTTP", "route /library");
+		struct library l;
+		struct json j;
+
+		if (scan_library(&l, media_dir) < 0) {
+			logmsg(verbose_log, "SCAN", "scan failed");
+			reply_text(c, HTTP_500, "scan failed\n");
+			return -1;
+		}
+		logmsg(verbose_log, "SCAN", "found %zu items", l.len);
+
+		if (json_library(&j, &l) < 0) {
+			logmsg(verbose_log, "JSON", "encode failed");
+			scan_library_free(&l);
+			reply_text(c, HTTP_500, "json failed\n");
+			return -1;
+		}
+		logmsg(verbose_log, "JSON", "encoded %zu bytes", j.len);
+
+		scan_library_free(&l);
+		reply_json(c, HTTP_200, j.buf, j.len);
+		json_free(&j);
+
+		return 0;
+	}
+
 	logmsg(verbose_log, "HTTP", "route not found: %s", path);
 	reply_text(c, HTTP_404, "not found\n");
 
@@ -52,7 +81,12 @@ static int read_reqline(int c, char* method, size_t msz, char* path, size_t psz)
 			return -1;
 
 		ssize_t r = read(c, buf + used, sizeof(buf) - 1 - used);
-		if (r <= 0)
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+			return -1;
+		}
+		if (r == 0)
 			return -1;
 
 		used += (size_t)r;
@@ -72,6 +106,31 @@ static int read_reqline(int c, char* method, size_t msz, char* path, size_t psz)
 	path[psz-1] = '\0';
 
 	return 0;
+}
+
+static void reply_json(int c, const char* status, const char* body, size_t len)
+{
+	char resp[HTTP_RESP_MAX];
+	int n = snprintf(
+		resp, sizeof(resp),
+
+		"%s"
+		HTTP_JSON
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
+
+		status, len
+	);
+
+	if (n < 0)
+		return;
+
+	if ((size_t)n >= sizeof(resp))
+		n = (int)(sizeof(resp) - 1);
+
+	(void)write_all(c, resp, (size_t)n);
+	(void)write_all(c, body, len);
 }
 
 static void reply_text(int c, const char* status, const char* body)
@@ -105,7 +164,7 @@ static int write_all(int fd, const void* buf, size_t n)
 	const char* p = buf;
 
 	while (n > 0) {
-		size_t w = write(fd, p, n);
+		ssize_t w = write(fd, p, n);
 		if (w < 0) {
 			if (errno == EINTR)
 				continue;
@@ -118,3 +177,4 @@ static int write_all(int fd, const void* buf, size_t n)
 
 	return 0;
 }
+
