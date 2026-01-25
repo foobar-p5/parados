@@ -9,6 +9,7 @@
 
 #define HTTP_TEXT   "Content-Type: text/plain\r\n"
 #define HTTP_JSON   "Content-Type: application/json\r\n"
+#define HTTP_BIN    "Content-Type: application/octet-stream\r\n"
 #define HTTP_CLOSE  "Connection: close\r\n"
 #define HTTP_LENGTH "Content-Length: %zu\r\n"
 

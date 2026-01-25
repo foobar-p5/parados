@@ -1,7 +1,11 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -10,64 +14,54 @@
 #include "log.h"
 #include "scan.h"
 
+static const struct item* find_item(uint64_t id);
+static int join_path(char* out, size_t outsz, const char* a, const char* b);
+static int parse_hex64(const char* s, uint64_t* out);
 static int read_reqline(int c, char* method, size_t msz, char* path, size_t psz);
 static void reply_json(int c, const char* status, const char* body, size_t len);
 static void reply_text(int c, const char* status, const char* body);
+static int stream_file(int c, const struct item* it);
 static int write_all(int fd, const void* buf, size_t n);
 
-int http_handle(int c)
+
+extern struct library lib;
+
+static const struct item* find_item(uint64_t id)
 {
-	char method[16];
-	char path[1024];
+	for (size_t i = 0; i < lib.len; i++)
+		if (lib.items[i].id == id)
+			return &lib.items[i];
 
-	if (read_reqline(c, method, sizeof(method), path, sizeof(path)) < 0) {
-		reply_text(c, HTTP_400, "bad request\n");
+	return NULL;
+}
+
+static int join_path(char* out, size_t outsz, const char* a, const char* b)
+{
+	int n = snprintf(out, outsz, "%s/%s", a, b);
+	if (n < 0)
 		return -1;
-	}
-	LOG(verbose_log, "HTTP", "request: %s %s", method, path);
 
-	if (strcmp(method, "GET") != 0) {
-		LOG(verbose_log, "HTTP", "method not allowed: %s", method);
-		reply_text(c, HTTP_405, "method not allowed\n");
-		return 0;
-	}
+	if ((size_t)n >= outsz)
+		return -1;
 
-	if (strcmp(path, "/ping") == 0) {
-		LOG(verbose_log, "HTTP", "route /ping");
-		reply_text(c, HTTP_200, "ok\n");
-		return 0;
-	}
+	return 0;
+}
 
-	if (strcmp(path, "/library") == 0) {
-		LOG(verbose_log, "HTTP", "route /library");
-		struct library l;
-		struct json j;
+static int parse_hex64(const char* s, uint64_t* out)
+{
+	char* end = NULL;
 
-		if (scan_library(&l, media_dir) < 0) {
-			LOG(verbose_log, "SCAN", "scan failed");
-			reply_text(c, HTTP_500, "scan failed\n");
-			return -1;
-		}
-		LOG(verbose_log, "SCAN", "found %zu items", l.len);
+	if (!s || *s == '\0')
+		return -1;
 
-		if (json_library(&j, &l) < 0) {
-			LOG(verbose_log, "JSON", "encode failed");
-			scan_library_free(&l);
-			reply_text(c, HTTP_500, "json failed\n");
-			return -1;
-		}
-		LOG(verbose_log, "JSON", "encoded %zu bytes", j.len);
+	errno = 0;
+	unsigned long long v = strtoull(s, &end, 16);
+	if (errno != 0)
+		return -1;
+	if (!end || *end != '\0')
+		return -1;
 
-		scan_library_free(&l);
-		reply_json(c, HTTP_200, j.buf, j.len);
-		json_free(&j);
-
-		return 0;
-	}
-
-	LOG(verbose_log, "HTTP", "route not found: %s", path);
-	reply_text(c, HTTP_404, "not found\n");
-
+	*out = (uint64_t)v;
 	return 0;
 }
 
@@ -159,6 +153,88 @@ static void reply_text(int c, const char* status, const char* body)
 	(void)write_all(c, resp, (size_t)n);
 }
 
+static int stream_file(int c, const struct item* it)
+{
+	char full[4096];
+
+	/* build absolute path */
+	if (join_path(full, sizeof(full), media_dir, it->path) < 0) {
+		LOG(verbose_log, "HTTP", "path too long");
+		reply_text(c, HTTP_500, "server error\n");
+		return -1;
+	}
+
+	/* open file */
+	int fd = open(full, O_RDONLY);
+	if (fd < 0) {
+		LOG(verbose_log, "HTTP", "open failed: %s", it->path);
+		reply_text(c, HTTP_404, "not found\n");
+		return 0;
+	}
+
+	/* stat file */
+	struct stat st;
+	if (fstat(fd, &st) < 0) {
+		close(fd);
+		reply_text(c, HTTP_500, "server error\n");
+		return -1;
+	}
+
+	/* reject non-regular files */
+	if (!S_ISREG(st.st_mode)) {
+		close(fd);
+		reply_text(c, HTTP_404, "not found\n");
+		return 0;
+	}
+
+	size_t len = (size_t)st.st_size;
+
+	/* build response header */
+	char resp[HTTP_RESP_MAX];
+	int n = snprintf(
+		resp, sizeof(resp),
+		"%s"
+		HTTP_BIN
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
+		HTTP_200, len
+	);
+
+	if (n < 0) {
+		close(fd);
+		return -1;
+	}
+
+	if ((size_t)n >= sizeof(resp))
+		n = (int)(sizeof(resp) - 1);
+
+	/* send headers */
+	(void)write_all(c, resp, (size_t)n);
+
+	/* stream file */
+	char buf[8192];
+	for (;;) {
+		ssize_t r = read(fd, buf, sizeof(buf));
+		if (r < 0) {
+			if (errno == EINTR)
+				continue;
+			break;
+		}
+
+		if (r == 0)
+			break;
+
+		if (write_all(c, buf, (size_t)r) < 0)
+			break;
+	}
+
+	close(fd);
+	LOG(verbose_log, "HTTP", "streamed %s (%zu bytes)", it->path, len);
+
+	return 0;
+}
+
 static int write_all(int fd, const void* buf, size_t n)
 {
 	const char* p = buf;
@@ -174,6 +250,70 @@ static int write_all(int fd, const void* buf, size_t n)
 		p += (size_t)w;
 		n -= (size_t)w;
 	}
+
+	return 0;
+}
+
+int http_handle(int c)
+{
+	char method[16];
+	char path[1024];
+
+	if (read_reqline(c, method, sizeof(method), path, sizeof(path)) < 0) {
+		reply_text(c, HTTP_400, "bad request\n");
+		return -1;
+	}
+	LOG(verbose_log, "HTTP", "request: %s %s", method, path);
+
+	if (strcmp(method, "GET") != 0) {
+		LOG(verbose_log, "HTTP", "method not allowed: %s", method);
+		reply_text(c, HTTP_405, "method not allowed\n");
+		return 0;
+	}
+
+	if (strcmp(path, "/ping") == 0) {
+		LOG(verbose_log, "HTTP", "route /ping");
+		reply_text(c, HTTP_200, "ok\n");
+		return 0;
+	}
+
+	if (strcmp(path, "/library") == 0) {
+		LOG(verbose_log, "HTTP", "route /library");
+		struct json j;
+
+		if (json_library(&j, &lib) < 0) {
+			LOG(verbose_log, "JSON", "encode failed");
+			reply_text(c, HTTP_500, "json failed\n");
+			return -1;
+		}
+		LOG(verbose_log, "JSON", "encoded %zu bytes", j.len);
+
+		reply_json(c, HTTP_200, j.buf, j.len);
+		json_free(&j);
+
+		return 0;
+	}
+
+	if (strncmp(path, "/stream/", 8) == 0) {
+		LOG(verbose_log, "HTTP", "route /stream");
+
+		uint64_t id;
+		if (parse_hex64(path + 8, &id) < 0) {
+			reply_text(c, HTTP_400, "bad request\n");
+			return 0;
+		}
+
+		const struct item* it = find_item(id);
+		if (!it) {
+			reply_text(c, HTTP_404, "not found\n");
+			return 0;
+		}
+
+		return stream_file(c, it);
+	}
+
+	LOG(verbose_log, "HTTP", "route not found: %s", path);
+	reply_text(c, HTTP_404, "not found\n");
 
 	return 0;
 }

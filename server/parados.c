@@ -22,6 +22,7 @@
 #include "config.h"
 #include "http.h"
 #include "log.h"
+#include "scan.h"
 
 void die(const char* s, int e);
 void run(void);
@@ -29,6 +30,7 @@ void setup(void);
 int write_all(int fd, const void* buf, size_t n);
 
 int sock;
+struct library lib;
 
 void die(const char* s, int e)
 {
@@ -76,6 +78,10 @@ void setup(void)
 	ret = bind(sock, (struct sockaddr*)&a, sizeof(a));
 	if (ret < 0)
 		die("bind", EXIT_FAILURE);
+
+	if (scan_library(&lib, media_dir) < 0)
+		die("scan_library", EXIT_FAILURE);
+	LOG(verbose_log, "SCAN", "cached %zu items", lib.len);
 
 	ret = listen(sock, LISTEN_BACKLOG);
 	if (ret < 0)
