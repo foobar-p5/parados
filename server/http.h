@@ -10,7 +10,7 @@
 #define HTTP_CLOSE  "Connection: close\r\n"
 #define HTTP_LENGTH "Content-Length: %zu\r\n"
 
-int http_handle(char c);
+int http_handle(int c);
 
 #endif /* HTTP_H */
 

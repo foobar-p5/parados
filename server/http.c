@@ -7,11 +7,13 @@
 #include "config.h"
 #include "http.h"
 
+void logmsg(bool verbose, const char* tag, const char* fmt, ...);
+
 static int read_reqline(int c, char* method, size_t msz, char* path, size_t psz);
 static void reply_text(int c, const char* status, const char* body);
 static int write_all(int fd, const void* buf, size_t n);
 
-int http_handle(char c)
+int http_handle(int c)
 {
 	char method[16];
 	char path[1024];
@@ -20,18 +22,23 @@ int http_handle(char c)
 		reply_text(c, HTTP_400, "bad request\n");
 		return -1;
 	}
+	logmsg(verbose_log, "HTTP", "request: %s %s", method, path);
 
 	if (strcmp(method, "GET") != 0) {
+		logmsg(verbose_log, "HTTP", "method not allowed: %s", method);
 		reply_text(c, HTTP_405, "method not allowed\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
+		logmsg(verbose_log, "HTTP", "route /ping");
 		reply_text(c, HTTP_200, "ok\n");
 		return 0;
 	}
 
+	logmsg(verbose_log, "HTTP", "route not found: %s", path);
 	reply_text(c, HTTP_404, "not found\n");
+
 	return 0;
 }
 

@@ -1,6 +1,6 @@
 CC ?= cc
 
-CPPFLAGS =
+CPPFLAGS = -D_POSIX_C_SOURCE=200809L
 CFLAGS = -std=c99 -Wall -Wextra -O2 -Iserver/include
 OUT = parados
 
