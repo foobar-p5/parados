@@ -14,6 +14,7 @@ struct json {
 
 void json_free(struct json* j);
 int json_library(struct json* j, const struct library* l);
+int json_meta(struct json* j, const struct item* it, size_t size, const char* type);
 
 #endif /* JSON_H */
 

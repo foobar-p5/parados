@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -19,13 +20,16 @@
 static const char* cistrstr(const char* hay, const char* nee);
 static const struct item* find_item(uint64_t id);
 static int join_path(char* out, size_t outsz, const char* a, const char* b);
+static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
 static void reply_json(int c, const char* status, const char* body, size_t len, int send_body);
 static void reply_text(int c, const char* status, const char* body);
+static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 static int write_all(int fd, const void* buf, size_t n);
+
 
 extern struct library lib;
 
@@ -77,6 +81,59 @@ static int join_path(char* out, size_t outsz, const char* a, const char* b)
 		return -1;
 
 	return 0;
+}
+
+static const char* mime_from_path(const char* path)
+{
+	const char* dot = strrchr(path, '.');
+	if (!dot || dot[1] == '\0')
+		return "application/octet-stream";
+
+	dot++;
+
+	/* audio */
+	if (strcasecmp(dot, "mp3") == 0)
+		return "audio/mpeg";
+	if (strcasecmp(dot, "m4a") == 0)
+		return "audio/mp4";
+	if (strcasecmp(dot, "aac") == 0)
+		return "audio/aac";
+	if (strcasecmp(dot, "flac") == 0)
+		return "audio/flac";
+	if (strcasecmp(dot, "wav") == 0)
+		return "audio/wav";
+	if (strcasecmp(dot, "ogg") == 0)
+		return "audio/ogg";
+	if (strcasecmp(dot, "opus") == 0)
+		return "audio/opus";
+
+	/* video */
+	if (strcasecmp(dot, "mp4") == 0)
+		return "video/mp4";
+	if (strcasecmp(dot, "mkv") == 0)
+		return "video/x-matroska";
+	if (strcasecmp(dot, "webm") == 0)
+		return "video/webm";
+	if (strcasecmp(dot, "mov") == 0)
+		return "video/quicktime";
+
+	/* images */
+	if (strcasecmp(dot, "jpg") == 0)
+		return "image/jpeg";
+	if (strcasecmp(dot, "jpeg") == 0)
+		return "image/jpeg";
+	if (strcasecmp(dot, "png") == 0)
+		return "image/png";
+	if (strcasecmp(dot, "gif") == 0)
+		return "image/gif";
+	if (strcasecmp(dot, "webp") == 0)
+		return "image/webp";
+
+	/* misc */
+	if (strcasecmp(dot, "pdf") == 0)
+		return "application/pdf";
+
+	return "application/octet-stream";
 }
 
 static int parse_hex64(const char* s, uint64_t* out)
@@ -275,6 +332,22 @@ static void reply_text(int c, const char* status, const char* body)
 	(void)write_all(c, resp, (size_t)n);
 }
 
+static int stat_item(const struct item* it, struct stat* st)
+{
+	char full[4096];
+
+	if (join_path(full, sizeof(full), media_dir, it->path) < 0)
+		return -1;
+
+	if (stat(full, st) < 0)
+		return -1;
+
+	if (!S_ISREG(st->st_mode))
+		return -1;
+
+	return 0;
+}
+
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only)
 {
 	char full[4096];
@@ -312,6 +385,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	size_t total = (size_t)st.st_size;
 	size_t start = 0;
 	size_t end = total ? (total - 1) : 0;
+	const char* type = mime_from_path(it->path);
 
 	int partial = parse_range(hdr, total, &start, &end);
 	if (partial == RANGE_BAD) {
@@ -341,28 +415,30 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int n;
 
 	if (partial == RANGE_OK) {
+		/* partial */
 		n = snprintf(
 			resp, sizeof(resp),
 			"%s"
-			HTTP_BIN
+			HTTP_CTYPE
 			HTTP_RANGE
 			HTTP_CRG
 			HTTP_LENGTH
 			HTTP_CLOSE
 			"\r\n",
-			HTTP_206, start, end, total, len
+			HTTP_206, type, start, end, total, len
 		);
 	}
 	else {
+		/* non-partial */
 		n = snprintf(
 			resp, sizeof(resp),
 			"%s"
-			HTTP_BIN
+			HTTP_CTYPE
 			HTTP_RANGE
 			HTTP_LENGTH
 			HTTP_CLOSE
 			"\r\n",
-			HTTP_200, len
+			HTTP_200, type, len
 		);
 	}
 
@@ -507,6 +583,41 @@ int http_handle(int c)
 		}
 
 		return stream_file(c, it, hdr, head_only);
+	}
+
+	if (strncmp(path, "/meta/", 6) == 0) {
+		LOG(verbose_log, "HTTP", "route /meta");
+
+		uint64_t id;
+		if (parse_hex64(path + 6, &id) < 0) {
+			reply_text(c, HTTP_400, "bad request\n");
+			return 0;
+		}
+
+		const struct item* it = find_item(id);
+		if (!it) {
+			reply_text(c, HTTP_404, "not found\n");
+			return 0;
+		}
+
+		struct stat st;
+		if (stat_item(it, &st) < 0) {
+			reply_text(c, HTTP_404, "not found\n");
+			return 0;
+		}
+
+		const char* type = mime_from_path(it->path);
+
+		struct json j;
+		if (json_meta(&j, it, (size_t)st.st_size, type) < 0) {
+			reply_text(c, HTTP_500, "json failed\n");
+			return -1;
+		}
+
+		reply_json(c, HTTP_200, j.buf, j.len, !head_only);
+		json_free(&j);
+
+		return 0;
 	}
 
 	LOG(verbose_log, "HTTP", "route not found: %s", path);

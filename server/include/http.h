@@ -12,6 +12,7 @@
 #define HTTP_BIN    "Content-Type: application/octet-stream\r\n"
 #define HTTP_CLOSE  "Connection: close\r\n"
 #define HTTP_CRG    "Content-Range: bytes %zu-%zu/%zu\r\n"
+#define HTTP_CTYPE  "Content-Type: %s\r\n"
 #define HTTP_JSON   "Content-Type: application/json\r\n"
 #define HTTP_LENGTH "Content-Length: %zu\r\n"
 #define HTTP_RANGE  "Accept-Ranges: bytes\r\n"

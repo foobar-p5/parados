@@ -128,6 +128,17 @@ static int json_string(struct json* j, const char* s)
 	return 0;
 }
 
+void json_free(struct json* j)
+{
+	if (!j)
+		return;
+
+	free(j->buf);
+	j->buf = NULL;
+	j->len = 0;
+	j->cap = 0;
+}
+
 int json_library(struct json* j, const struct library* l)
 {
 	memset(j, 0, sizeof(*j));
@@ -172,14 +183,41 @@ fail:
 	return -1;
 }
 
-void json_free(struct json* j)
+int json_meta(struct json* j, const struct item* it, size_t size, const char* type)
 {
-	if (!j)
-		return;
+	memset(j, 0, sizeof(*j));
 
-	free(j->buf);
-	j->buf = NULL;
-	j->len = 0;
-	j->cap = 0;
+	if (json_puts(j, "{\"proto\":1,\"id\":") < 0)
+		goto fail;
+	if (json_hex64(j, it->id) < 0)
+		goto fail;
+
+	if (json_puts(j, ",\"path\":") < 0)
+		goto fail;
+	if (json_string(j, it->path) < 0)
+		goto fail;
+
+	if (json_puts(j, ",\"size\":") < 0)
+		goto fail;
+
+	/* decimal size */
+	char tmp[32];
+	snprintf(tmp, sizeof(tmp), "%zu", size);
+	if (json_puts(j, tmp) < 0)
+		goto fail;
+
+	if (json_puts(j, ",\"type\":") < 0)
+		goto fail;
+	if (json_string(j, type) < 0)
+		goto fail;
+
+	if (json_putc(j, '}') < 0)
+		goto fail;
+
+	return 0;
+
+fail:
+	json_free(j);
+	return -1;
 }
 
