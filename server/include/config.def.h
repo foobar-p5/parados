@@ -4,8 +4,8 @@
 #include <stdbool.h>
 
 static const char*  media_dir     = "/path/to/media";
-static const char*  server_addr   = "127.0.0.1";
-static const int    server_port   = 3579;
+static const char*  server_addr   = "0.0.0.0";
+static const int    server_port   = 8088;
 static const bool   verbose_log   = true;
 
 enum {
