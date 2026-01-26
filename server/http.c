@@ -27,7 +27,6 @@ static void reply_text(int c, const char* status, const char* body);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 static int write_all(int fd, const void* buf, size_t n);
 
-
 extern struct library lib;
 
 static const char* cistrstr(const char* hay, const char* nee)
@@ -125,9 +124,11 @@ static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end
 		unsigned long long suf = strtoull(r, &e2, 10);
 		if (errno != 0 || e2 == r)
 			return RANGE_BAD;
+		if (suf == 0)
+			return RANGE_BAD;
 
 		if (total == 0)
-			return RANGE_BAD;
+			return RANGE_UNSAT;
 
 		if ((size_t)suf >= total) {
 			*start = 0;
@@ -156,7 +157,7 @@ static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end
 	if (*r == '\r' || *r == '\n' || *r == '\0') {
 		/* bytes=START- */
 		if ((size_t)a >= total)
-			return RANGE_BAD;
+			return RANGE_UNSAT;
 		*start = (size_t)a;
 		*end = total - 1;
 		return RANGE_OK;
@@ -170,7 +171,7 @@ static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end
 		return RANGE_BAD;
 
 	if ((size_t)a >= total)
-		return RANGE_BAD;
+		return RANGE_UNSAT;
 	if ((size_t)b >= total)
 		b = total - 1;
 	if (b < a)
