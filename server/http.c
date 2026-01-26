@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,14 +19,16 @@
 #include "scan.h"
 
 static const char* cistrstr(const char* hay, const char* nee);
+static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
 static const struct item* find_item(uint64_t id);
 static int join_path(char* out, size_t outsz, const char* a, const char* b);
 static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
-static void reply_json(int c, const char* status, const char* body, size_t len, int send_body);
-static void reply_text(int c, const char* status, const char* body);
+static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
+static void reply_preflight(int c, const char* hdr);
+static void reply_text(int c, const char* hdr, const char* status, const char* body);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 static int write_all(int fd, const void* buf, size_t n);
@@ -60,6 +63,121 @@ static const char* cistrstr(const char* hay, const char* nee)
 	}
 
 	return NULL;
+}
+
+static int cors_origin_allowed(const char* origin)
+{
+	if (!cors_origin || cors_origin[0] == '\0')
+		return 0;
+
+	if (strcmp(cors_origin, "*") == 0)
+		return 1;
+
+	/* comma/space separated allowlist */
+	const char* p = cors_origin;
+	while (*p) {
+		while (*p == ' ' || *p == '\t' || *p == ',')
+			p++;
+
+		const char* s = p;
+		while (*p && *p != ',')
+			p++;
+
+		const char* e = p;
+		while (e > s && (e[-1] == ' ' || e[-1] == '\t'))
+			e--;
+
+		size_t n = (size_t)(e - s);
+		if (n > 0 && strlen(origin) == n && strncmp(origin, s, n) == 0)
+			return 1;
+
+		if (*p == ',')
+			p++;
+	}
+
+	return 0;
+}
+
+static int cors_get_origin(char out[512], const char* hdr)
+{
+	const char* p = cistrstr(hdr, "\norigin:");
+	if (!p)
+		p = cistrstr(hdr, "\rorigin:");
+	if (!p)
+		p = cistrstr(hdr, "origin:");
+	if (!p)
+		return -1;
+
+	p = strchr(p, ':');
+	if (!p)
+		return -1;
+	p++;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+
+	size_t n = 0;
+	while (*p && *p != '\r' && *p != '\n') {
+		if (n + 1 >= 512)
+			return -1;
+		out[n++] = *p++;
+	}
+	out[n] = '\0';
+
+	if (n == 0)
+		return -1;
+
+	return 0;
+}
+
+static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
+{
+	char origin[512];
+
+	if (!out || outsz == 0)
+		return 0;
+
+	out[0] = '\0';
+
+	if (!cors_origin || cors_origin[0] == '\0')
+		return 0;
+
+	if (cors_get_origin(origin, hdr) < 0)
+		return 0;
+
+	if (!cors_origin_allowed(origin))
+		return 0;
+
+	int n;
+	const char* ao = (strcmp(cors_origin, "*") == 0) ? "*" : origin;
+	if (preflight) {
+		n = snprintf(
+			out, outsz,
+			"Access-Control-Allow-Origin: %s\r\n"
+			"Vary: Origin\r\n"
+			"Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n"
+			"Access-Control-Allow-Headers: Range, Content-Type\r\n"
+			"Access-Control-Max-Age: 600\r\n"
+			"Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, Content-Type\r\n",
+			ao
+		);
+	}
+	else {
+		n = snprintf(
+			out, outsz,
+			"Access-Control-Allow-Origin: %s\r\n"
+			"Vary: Origin\r\n"
+			"Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, Content-Type\r\n",
+			ao
+		);
+	}
+
+	if (n < 0)
+		return 0;
+	if ((size_t)n >= outsz)
+		out[outsz - 1] = '\0';
+
+	return 1;
 }
 
 static const struct item* find_item(uint64_t id)
@@ -279,19 +397,23 @@ static int read_request(int c, char* method, size_t msz, char* path, size_t psz,
 	return 0;
 }
 
-static void reply_json(int c, const char* status, const char* body, size_t len, int send_body)
+static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
 {
 	char resp[HTTP_RESP_MAX];
+	char cors[512];
+
+	(void)cors_build(cors, sizeof(cors), hdr, 0);
 	int n = snprintf(
 		resp, sizeof(resp),
 
+		"%s"
 		"%s"
 		HTTP_JSON
 		HTTP_LENGTH
 		HTTP_CLOSE
 		"\r\n",
 
-		status, len
+		status, cors, len
 	);
 
 	if (n < 0)
@@ -306,12 +428,43 @@ static void reply_json(int c, const char* status, const char* body, size_t len, 
 		(void)write_all(c, body, len);
 }
 
-static void reply_text(int c, const char* status, const char* body)
+static void reply_preflight(int c, const char* hdr)
 {
 	char resp[HTTP_RESP_MAX];
+	char cors[512];
+
+	(void)cors_build(cors, sizeof(cors), hdr, 1);
+
+	int n = snprintf(
+		resp, sizeof(resp),
+		"%s"
+		"%s"
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
+		HTTP_204,
+		cors,
+		(size_t)0
+	);
+
+	if (n < 0)
+		return;
+	if ((size_t)n >= sizeof(resp))
+		n = (int)(sizeof(resp) - 1);
+
+	(void)write_all(c, resp, (size_t)n);
+}
+
+static void reply_text(int c, const char* hdr, const char* status, const char* body)
+{
+	char resp[HTTP_RESP_MAX];
+	char cors[512];
+
+	(void)cors_build(cors, sizeof(cors), hdr, 0);
 	int n = snprintf(
 		resp, sizeof(resp),
 
+		"%s"
 		"%s"
 		HTTP_TEXT
 		HTTP_LENGTH
@@ -320,6 +473,7 @@ static void reply_text(int c, const char* status, const char* body)
 		"%s",
 
 		status,
+		cors,
 		strlen(body), body
 	);
 
@@ -355,7 +509,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	/* build absolute path */
 	if (join_path(full, sizeof(full), media_dir, it->path) < 0) {
 		LOG(verbose_log, "HTTP", "path too long");
-		reply_text(c, HTTP_500, "server error\n");
+		reply_text(c, hdr, HTTP_500, "server error\n");
 		return -1;
 	}
 
@@ -363,7 +517,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int fd = open(full, O_RDONLY);
 	if (fd < 0) {
 		LOG(verbose_log, "HTTP", "open failed: %s", it->path);
-		reply_text(c, HTTP_404, "not found\n");
+		reply_text(c, hdr, HTTP_404, "not found\n");
 		return 0;
 	}
 
@@ -371,14 +525,14 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	struct stat st;
 	if (fstat(fd, &st) < 0) {
 		close(fd);
-		reply_text(c, HTTP_500, "server error\n");
+		reply_text(c, hdr, HTTP_500, "server error\n");
 		return -1;
 	}
 
 	/* reject non-regular files */
 	if (!S_ISREG(st.st_mode)) {
 		close(fd);
-		reply_text(c, HTTP_404, "not found\n");
+		reply_text(c, hdr, HTTP_404, "not found\n");
 		return 0;
 	}
 
@@ -386,24 +540,27 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	size_t start = 0;
 	size_t end = total ? (total - 1) : 0;
 	const char* type = mime_from_path(it->path);
+	char cors[512];
+
+	(void)cors_build(cors, sizeof(cors), hdr, 0);
 
 	int partial = parse_range(hdr, total, &start, &end);
 	if (partial == RANGE_BAD) {
 		close(fd);
-		reply_text(c, HTTP_400, "bad range\n");
+		reply_text(c, hdr, HTTP_400, "bad range\n");
 		return 0;
 	}
 
 	if (partial == RANGE_UNSAT) {
 		close(fd);
-		reply_text(c, HTTP_416, "range not satisfiable\n");
+		reply_text(c, hdr, HTTP_416, "range not satisfiable\n");
 		return 0;
 	}
 
 	if (partial == RANGE_OK) {
 		if (lseek(fd, (off_t)start, SEEK_SET) < 0) {
 			close(fd);
-			reply_text(c, HTTP_500, "server error\n");
+			reply_text(c, hdr, HTTP_500, "server error\n");
 			return -1;
 		}
 	}
@@ -420,12 +577,13 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 			resp, sizeof(resp),
 			"%s"
 			HTTP_CTYPE
+			"%s"
 			HTTP_RANGE
 			HTTP_CRG
 			HTTP_LENGTH
 			HTTP_CLOSE
 			"\r\n",
-			HTTP_206, type, start, end, total, len
+			HTTP_206, type, cors, start, end, total, len
 		);
 	}
 	else {
@@ -434,11 +592,12 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 			resp, sizeof(resp),
 			"%s"
 			HTTP_CTYPE
+			"%s"
 			HTTP_RANGE
 			HTTP_LENGTH
 			HTTP_CLOSE
 			"\r\n",
-			HTTP_200, type, len
+			HTTP_200, type, cors, len
 		);
 	}
 
@@ -526,7 +685,7 @@ int http_handle(int c)
 	char hdr[HTTP_REQ_MAX];
 
 	if (read_request(c, method, sizeof(method), path, sizeof(path), hdr, sizeof(hdr)) < 0) {
-		reply_text(c, HTTP_400, "bad request\n");
+		reply_text(c, hdr, HTTP_400, "bad request\n");
 		return -1;
 	}
 	LOG(verbose_log, "HTTP", "request: %s %s", method, path);
@@ -538,15 +697,19 @@ int http_handle(int c)
 	else if (strcmp(method, "HEAD") == 0) {
 		head_only = 1;
 	}
+	else if (strcmp(method, "OPTIONS") == 0) {
+		reply_preflight(c, hdr);
+		return 0;
+	}
 	else {
 		LOG(verbose_log, "HTTP", "method not allowed: %s", method);
-		reply_text(c, HTTP_405, "method not allowed\n");
+		reply_text(c, hdr, HTTP_405, "method not allowed\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
 		LOG(verbose_log, "HTTP", "route /ping");
-		reply_text(c, HTTP_200, "ok\n");
+		reply_text(c, hdr, HTTP_200, "ok\n");
 		return 0;
 	}
 
@@ -556,12 +719,12 @@ int http_handle(int c)
 
 		if (json_library(&j, &lib) < 0) {
 			LOG(verbose_log, "JSON", "encode failed");
-			reply_text(c, HTTP_500, "json failed\n");
+			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
 		}
 		LOG(verbose_log, "JSON", "encoded %zu bytes", j.len);
 
-		reply_json(c, HTTP_200, j.buf, j.len, !head_only);
+		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
 
 		return 0;
@@ -572,13 +735,13 @@ int http_handle(int c)
 
 		uint64_t id;
 		if (parse_hex64(path + 8, &id) < 0) {
-			reply_text(c, HTTP_400, "bad request\n");
+			reply_text(c, hdr, HTTP_400, "bad request\n");
 			return 0;
 		}
 
 		const struct item* it = find_item(id);
 		if (!it) {
-			reply_text(c, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
 
@@ -590,19 +753,19 @@ int http_handle(int c)
 
 		uint64_t id;
 		if (parse_hex64(path + 6, &id) < 0) {
-			reply_text(c, HTTP_400, "bad request\n");
+			reply_text(c, hdr, HTTP_400, "bad request\n");
 			return 0;
 		}
 
 		const struct item* it = find_item(id);
 		if (!it) {
-			reply_text(c, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
 
 		struct stat st;
 		if (stat_item(it, &st) < 0) {
-			reply_text(c, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
 
@@ -610,18 +773,18 @@ int http_handle(int c)
 
 		struct json j;
 		if (json_meta(&j, it, (size_t)st.st_size, type) < 0) {
-			reply_text(c, HTTP_500, "json failed\n");
+			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
 		}
 
-		reply_json(c, HTTP_200, j.buf, j.len, !head_only);
+		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
 
 		return 0;
 	}
 
 	LOG(verbose_log, "HTTP", "route not found: %s", path);
-	reply_text(c, HTTP_404, "not found\n");
+	reply_text(c, hdr, HTTP_404, "not found\n");
 
 	return 0;
 }

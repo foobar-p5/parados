@@ -2,6 +2,7 @@
 #define HTTP_H
 
 #define HTTP_200    "HTTP/1.1 200 OK\r\n"
+#define HTTP_204    "HTTP/1.1 204 No Content\r\n"
 #define HTTP_206    "HTTP/1.1 206 Partial Content\r\n"
 #define HTTP_400    "HTTP/1.1 400 Bad Request\r\n"
 #define HTTP_404    "HTTP/1.1 404 Not Found\r\n"

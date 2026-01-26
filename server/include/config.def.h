@@ -7,6 +7,7 @@ static const char*  media_dir     = "/path/to/media";
 static const char*  server_addr   = "0.0.0.0";
 static const int    server_port   = 8088;
 static const bool   verbose_log   = true;
+static const char*  cors_origin   = "";
 
 enum {
 	HTTP_REQ_MAX   = 2048,
