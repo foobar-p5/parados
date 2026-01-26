@@ -1,0 +1,14 @@
+body {
+	color: #eeeeee;
+	background-color: #1e1f21;
+	font-family: serif;
+	margin: 20px;
+}
+
+video {
+	width: 100%;
+	max-width: 400px;
+	background: #000;
+	display: block;
+}
+
