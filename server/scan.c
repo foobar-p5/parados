@@ -11,9 +11,9 @@
 #include "config.h"
 #include "scan.h"
 #include "log.h"
+#include "util.h"
 
 static uint64_t encode_fnv1a64(const char* s);
-static int join_path(char* out, size_t outsz, const char* a, const char* b);
 static int library_push(struct library* l, const char* rel);
 static int scan_dir(struct library* l, const char* root, const char* rel);
 
@@ -28,24 +28,6 @@ static uint64_t encode_fnv1a64(const char* s)
 	}
 
 	return h;
-}
-
-static int join_path(char* out, size_t outsz, const char* a, const char* b)
-{
-	size_t al = strlen(a);
-	size_t bl = strlen(b);
-
-	if (al + 1 + bl + 1 > outsz) {
-		LOG(verbose_log, "SCAN", "path too long");
-		return -1;
-	}
-
-	memcpy(out, a, al);
-	out[al] = '/';
-	memcpy(out + al + 1, b, bl);
-	out[al + 1 + bl] = '\0';
-
-	return 0;
 }
 
 static int library_push(struct library* l, const char* rel)

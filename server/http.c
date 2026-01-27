@@ -1,4 +1,3 @@
-#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -17,16 +16,15 @@
 #include "json.h"
 #include "log.h"
 #include "scan.h"
+#include "util.h"
 
-static const char* cistrstr(const char* hay, const char* nee);
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
-static int get_host(char out[512], const char* hdr);
 static const struct item* find_item(uint64_t id);
-static int join_path(char* out, size_t outsz, const char* a, const char* b);
 static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
+static void reply_hdr(int c, const char* hdr, const char* status, const char* ctype, size_t len, int preflight);
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
 static void reply_m3u(int c, const char* hdr, const char* status, size_t len);
 static void reply_preflight(int c, const char* hdr);
@@ -34,39 +32,8 @@ static void reply_text(int c, const char* hdr, const char* status, const char* b
 static int queue_write(int c, const char* hdr, int head_only);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
-static int write_all(int fd, const void* buf, size_t n);
-
 
 extern struct library lib;
-
-static const char* cistrstr(const char* hay, const char* nee)
-{
-	size_t nl = strlen(nee);
-	if (nl == 0)
-		return hay;
-
-	for (; *hay; hay++) {
-		size_t i = 0;
-
-		for (;;) {
-			if (i == nl)
-				return hay;
-
-			unsigned char a = (unsigned char)hay[i];
-			unsigned char b = (unsigned char)nee[i];
-
-			if (a == '\0')
-				break;
-
-			if (tolower(a) != tolower(b))
-				break;
-
-			i++;
-		}
-	}
-
-	return NULL;
-}
 
 static int cors_origin_allowed(const char* origin)
 {
@@ -101,38 +68,6 @@ static int cors_origin_allowed(const char* origin)
 	return 0;
 }
 
-static int cors_get_origin(char out[512], const char* hdr)
-{
-	const char* p = cistrstr(hdr, "\norigin:");
-	if (!p)
-		p = cistrstr(hdr, "\rorigin:");
-	if (!p)
-		p = cistrstr(hdr, "origin:");
-	if (!p)
-		return -1;
-
-	p = strchr(p, ':');
-	if (!p)
-		return -1;
-	p++;
-
-	while (*p == ' ' || *p == '\t')
-		p++;
-
-	size_t n = 0;
-	while (*p && *p != '\r' && *p != '\n') {
-		if (n + 1 >= 512)
-			return -1;
-		out[n++] = *p++;
-	}
-	out[n] = '\0';
-
-	if (n == 0)
-		return -1;
-
-	return 0;
-}
-
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 {
 	char origin[512];
@@ -145,7 +80,7 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 	if (cors_origin[0] == '\0')
 		return 0;
 
-	if (cors_get_origin(origin, hdr) < 0)
+	if (hdr_get_value(origin, hdr, "origin") < 0)
 		return 0;
 
 	if (!cors_origin_allowed(origin))
@@ -183,38 +118,6 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 	return 1;
 }
 
-static int get_host(char out[512], const char* hdr)
-{
-	const char* p = cistrstr(hdr, "\nhost:");
-	if (!p)
-		p = cistrstr(hdr, "\rhost:");
-	if (!p)
-		p = cistrstr(hdr, "host:");
-	if (!p)
-		return -1;
-
-	p = strchr(p, ':');
-	if (!p)
-		return -1;
-	p++;
-
-	while (*p == ' ' || *p == '\t')
-		p++;
-
-	size_t n = 0;
-	while (*p && *p != '\r' && *p != '\n') {
-		if (n + 1 >= 512)
-			return -1;
-		out[n++] = *p++;
-	}
-	out[n] = '\0';
-
-	if (n == 0)
-		return -1;
-
-	return 0;
-}
-
 static const struct item* find_item(uint64_t id)
 {
 	for (size_t i = 0; i < lib.len; i++)
@@ -222,18 +125,6 @@ static const struct item* find_item(uint64_t id)
 			return &lib.items[i];
 
 	return NULL;
-}
-
-static int join_path(char* out, size_t outsz, const char* a, const char* b)
-{
-	int n = snprintf(out, outsz, "%s/%s", a, b);
-	if (n < 0)
-		return -1;
-
-	if ((size_t)n >= outsz)
-		return -1;
-
-	return 0;
 }
 
 static const char* mime_from_path(const char* path)
@@ -432,24 +323,47 @@ static int read_request(int c, char* method, size_t msz, char* path, size_t psz,
 	return 0;
 }
 
-static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
+static void reply_hdr(int c, const char* hdr, const char* status, const char* ctype, size_t len, int preflight)
 {
 	char resp[HTTP_RESP_MAX];
 	char cors[512];
 
-	(void)cors_build(cors, sizeof(cors), hdr, 0);
-	int n = snprintf(
-		resp, sizeof(resp),
+	(void)cors_build(cors, sizeof(cors), hdr, preflight);
 
-		"%s"
-		"%s"
-		HTTP_JSON
-		HTTP_LENGTH
-		HTTP_CLOSE
-		"\r\n",
+	int n;
 
-		status, cors, len
-	);
+	if (ctype && ctype[0]) {
+		n = snprintf(
+			resp, sizeof(resp),
+
+			"%s"
+			"%s"
+			"%s"
+			HTTP_LENGTH
+			HTTP_CLOSE
+			"\r\n",
+
+			status,
+			cors,
+			ctype,
+			len
+		);
+	}
+	else {
+		n = snprintf(
+			resp, sizeof(resp),
+
+			"%s"
+			"%s"
+			HTTP_LENGTH
+			HTTP_CLOSE
+			"\r\n",
+
+			status,
+			cors,
+			len
+		);
+	}
 
 	if (n < 0)
 		return;
@@ -458,6 +372,12 @@ static void reply_json(int c, const char* hdr, const char* status, const char* b
 		n = (int)(sizeof(resp) - 1);
 
 	(void)write_all(c, resp, (size_t)n);
+}
+
+
+static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
+{
+	reply_hdr(c, hdr, status, HTTP_JSON, len, 0);
 
 	if (send_body)
 		(void)write_all(c, body, len);
@@ -466,88 +386,20 @@ static void reply_json(int c, const char* hdr, const char* status, const char* b
 
 static void reply_m3u(int c, const char* hdr, const char* status, size_t len)
 {
-	char resp[HTTP_RESP_MAX];
-	char cors[512];
-
-	(void)cors_build(cors, sizeof(cors), hdr, 0);
-	int n = snprintf(
-		resp, sizeof(resp),
-
-		"%s"
-		"%s"
-		HTTP_M3U
-		HTTP_LENGTH
-		HTTP_CLOSE
-		"\r\n",
-
-		status, cors, len
-	);
-
-	if (n < 0)
-		return;
-
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
-
-	(void)write_all(c, resp, (size_t)n);
+	reply_hdr(c, hdr, status, HTTP_M3U, len, 0);
 }
 
 static void reply_preflight(int c, const char* hdr)
 {
-	char resp[HTTP_RESP_MAX];
-	char cors[512];
-
-	(void)cors_build(cors, sizeof(cors), hdr, 1);
-
-	int n = snprintf(
-		resp, sizeof(resp),
-		"%s"
-		"%s"
-		HTTP_LENGTH
-		HTTP_CLOSE
-		"\r\n",
-		HTTP_204,
-		cors,
-		(size_t)0
-	);
-
-	if (n < 0)
-		return;
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
-
-	(void)write_all(c, resp, (size_t)n);
+	reply_hdr(c, hdr, HTTP_204, NULL, (size_t)0, 1);
 }
 
 static void reply_text(int c, const char* hdr, const char* status, const char* body)
 {
-	char resp[HTTP_RESP_MAX];
-	char cors[512];
+	size_t len = strlen(body);
 
-	(void)cors_build(cors, sizeof(cors), hdr, 0);
-	int n = snprintf(
-		resp, sizeof(resp),
-
-		"%s"
-		"%s"
-		HTTP_TEXT
-		HTTP_LENGTH
-		HTTP_CLOSE
-		"\r\n"
-		"%s",
-
-		status,
-		cors,
-		strlen(body), body
-	);
-
-	if (n < 0)
-		return;
-
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
-
-	(void)write_all(c, resp, (size_t)n);
+	reply_hdr(c, hdr, status, HTTP_TEXT, len, 0);
+	(void)write_all(c, body, len);
 }
 
 static int queue_write(int c, const char* hdr, int head_only)
@@ -555,7 +407,7 @@ static int queue_write(int c, const char* hdr, int head_only)
 	char host[512];
 	char base[768];
 
-	if (get_host(host, hdr) == 0) {
+	if (hdr_get_value(host, hdr, "host") == 0) {
 		if (snprintf(base, sizeof(base), "http://%s", host) >= (int)sizeof(base))
 			return -1;
 	}
@@ -781,25 +633,6 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 		LOG(verbose_log, "HTTP", "streamed %s [%zu-%zu/%zu]", it->path, start, end, total);
 	else
 		LOG(verbose_log, "HTTP", "streamed %s (%zu bytes)", it->path, total);
-
-	return 0;
-}
-
-static int write_all(int fd, const void* buf, size_t n)
-{
-	const char* p = buf;
-
-	while (n > 0) {
-		ssize_t w = write(fd, p, n);
-		if (w < 0) {
-			if (errno == EINTR)
-				continue;
-			return -1;
-		}
-
-		p += (size_t)w;
-		n -= (size_t)w;
-	}
 
 	return 0;
 }

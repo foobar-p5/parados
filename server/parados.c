@@ -28,7 +28,6 @@
 void die(const char* s, int e);
 void run(void);
 void setup(void);
-int write_all(int fd, const void* buf, size_t n);
 
 int sock;
 struct library lib;
