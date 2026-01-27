@@ -8,19 +8,16 @@
 
 #include "config.h"
 
-static inline const char* log_time_hhmmss(char out[9])
+static inline const char* log_datetime(void)
 {
+	static char datetime[20];
 	time_t t = time(NULL);
 	struct tm tmv;
 
-#if defined(_WIN32)
-	localtime_s(&tmv, &t);
-#else
 	localtime_r(&t, &tmv);
-#endif
+	strftime(datetime, sizeof(datetime), "%d/%m/%Y %H:%M:%S", &tmv);
 
-	snprintf(out, 9, "%02d:%02d:%02d", tmv.tm_hour, tmv.tm_min, tmv.tm_sec);
-	return out;
+	return datetime;
 }
 
 static inline void log_vprint(bool verbose, const char* tag,
@@ -32,8 +29,7 @@ static inline void log_vprint(bool verbose, const char* tag,
 	if (!verbose)
 		return;
 
-	char ts[9];
-	fprintf(stderr, "%s [%s] ", log_time_hhmmss(ts), tag);
+	fprintf(stderr, "%s [%s] ", log_datetime(), tag);
 
 #if defined(DEBUG)
 	fprintf(stderr, "[%s : %d : %s()] ", file, line, func);
