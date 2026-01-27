@@ -20,6 +20,7 @@
 
 static const char* cistrstr(const char* hay, const char* nee);
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
+static int get_host(char out[512], const char* hdr);
 static const struct item* find_item(uint64_t id);
 static int join_path(char* out, size_t outsz, const char* a, const char* b);
 static const char* mime_from_path(const char* path);
@@ -27,8 +28,10 @@ static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
+static void reply_m3u(int c, const char* hdr, const char* status, size_t len);
 static void reply_preflight(int c, const char* hdr);
 static void reply_text(int c, const char* hdr, const char* status, const char* body);
+static int queue_write(int c, const char* hdr, int head_only);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 static int write_all(int fd, const void* buf, size_t n);
@@ -178,6 +181,38 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 		out[outsz - 1] = '\0';
 
 	return 1;
+}
+
+static int get_host(char out[512], const char* hdr)
+{
+	const char* p = cistrstr(hdr, "\nhost:");
+	if (!p)
+		p = cistrstr(hdr, "\rhost:");
+	if (!p)
+		p = cistrstr(hdr, "host:");
+	if (!p)
+		return -1;
+
+	p = strchr(p, ':');
+	if (!p)
+		return -1;
+	p++;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+
+	size_t n = 0;
+	while (*p && *p != '\r' && *p != '\n') {
+		if (n + 1 >= 512)
+			return -1;
+		out[n++] = *p++;
+	}
+	out[n] = '\0';
+
+	if (n == 0)
+		return -1;
+
+	return 0;
 }
 
 static const struct item* find_item(uint64_t id)
@@ -428,6 +463,35 @@ static void reply_json(int c, const char* hdr, const char* status, const char* b
 		(void)write_all(c, body, len);
 }
 
+
+static void reply_m3u(int c, const char* hdr, const char* status, size_t len)
+{
+	char resp[HTTP_RESP_MAX];
+	char cors[512];
+
+	(void)cors_build(cors, sizeof(cors), hdr, 0);
+	int n = snprintf(
+		resp, sizeof(resp),
+
+		"%s"
+		"%s"
+		HTTP_M3U
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
+
+		status, cors, len
+	);
+
+	if (n < 0)
+		return;
+
+	if ((size_t)n >= sizeof(resp))
+		n = (int)(sizeof(resp) - 1);
+
+	(void)write_all(c, resp, (size_t)n);
+}
+
 static void reply_preflight(int c, const char* hdr)
 {
 	char resp[HTTP_RESP_MAX];
@@ -484,6 +548,68 @@ static void reply_text(int c, const char* hdr, const char* status, const char* b
 		n = (int)(sizeof(resp) - 1);
 
 	(void)write_all(c, resp, (size_t)n);
+}
+
+static int queue_write(int c, const char* hdr, int head_only)
+{
+	char host[512];
+	char base[768];
+
+	if (get_host(host, hdr) == 0) {
+		if (snprintf(base, sizeof(base), "http://%s", host) >= (int)sizeof(base))
+			return -1;
+	}
+	else {
+		if (snprintf(base, sizeof(base), "http://%s:%d", server_addr, server_port) >= (int)sizeof(base))
+			return -1;
+	}
+
+	/* Content-Length */
+	size_t len = 0;
+	len += 8; /* "#EXTM3U\n" */
+
+	for (size_t i = 0; i < lib.len; i++) {
+		int n = snprintf(
+			NULL, 0,
+			"%s/stream/%016llx\n",
+			base,
+			(unsigned long long)lib.items[i].id
+		);
+
+		if (n < 0)
+			return -1;
+
+		len += (size_t)n;
+	}
+
+	reply_m3u(c, hdr, HTTP_200, len);
+
+	if (head_only)
+		return 0;
+
+	if (write_all(c, "#EXTM3U\n", 8) < 0)
+		return -1;
+
+	for (size_t i = 0; i < lib.len; i++) {
+		char line[2048];
+
+		int n = snprintf(
+			line, sizeof(line),
+			"%s/stream/%016llx\n",
+			base,
+			(unsigned long long)lib.items[i].id
+		);
+
+		if (n < 0)
+			return -1;
+		if ((size_t)n >= sizeof(line))
+			return -1;
+
+		if (write_all(c, line, (size_t)n) < 0)
+			return -1;
+	}
+
+	return 0;
 }
 
 static int stat_item(const struct item* it, struct stat* st)
@@ -779,6 +905,17 @@ int http_handle(int c)
 
 		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
+
+		return 0;
+	}
+
+	if (strcmp(path, "/queue") == 0) {
+		LOG(verbose_log, "HTTP", "route /queue");
+
+		if (queue_write(c, hdr, head_only) < 0) {
+			reply_text(c, hdr, HTTP_500, "server error\n");
+			return -1;
+		}
 
 		return 0;
 	}
