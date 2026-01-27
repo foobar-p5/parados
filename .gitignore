@@ -1,7 +1,6 @@
 compile_flags.txt
 paradosd
 parados
-config.h
 *.o
 *.swp
 *.sh

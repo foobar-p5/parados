@@ -67,7 +67,7 @@ static const char* cistrstr(const char* hay, const char* nee)
 
 static int cors_origin_allowed(const char* origin)
 {
-	if (!cors_origin || cors_origin[0] == '\0')
+	if (cors_origin[0] == '\0')
 		return 0;
 
 	if (strcmp(cors_origin, "*") == 0)
@@ -139,7 +139,7 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 
 	out[0] = '\0';
 
-	if (!cors_origin || cors_origin[0] == '\0')
+	if (cors_origin[0] == '\0')
 		return 0;
 
 	if (cors_get_origin(origin, hdr) < 0)
