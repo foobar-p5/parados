@@ -1,6 +1,6 @@
 /*  parados
 		the simple home media server
-	
+
 	this software is licensed under ISC
 	check LICENCE for more details
 */
@@ -73,6 +73,8 @@ void setup(void)
 	signal(SIGCHLD, SIG_IGN); /* reap children to prevent
 								 them to turn into zombies */
 
+	config_load();
+
 	int ret = 1;
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0)
@@ -112,7 +114,7 @@ int main(void)
 #ifdef __OpenBSD__
 	if (pledge("stdio inet", NULL) < 0)
 		die("pledge", EXIT_FAILURE);
-#endif
+#endif /* __OpenBSD__ */
 	run();
 	return EXIT_SUCCESS;
 }
