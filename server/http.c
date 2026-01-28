@@ -25,7 +25,7 @@ static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
-static void reply_hdr(int c, const char* hdr, const char* status, const char* ctype, size_t len, int preflight);
+static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight);
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
 static void reply_m3u(int c, const char* hdr, const char* status, size_t len);
 static void reply_preflight(int c, const char* hdr);
@@ -326,47 +326,30 @@ static int read_request(int c, char* method, size_t msz, char* path, size_t psz,
 	return 0;
 }
 
-static void reply_hdr(int c, const char* hdr, const char* status, const char* ctype, size_t len, int preflight)
+static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight)
 {
 	char resp[HTTP_RESP_MAX];
 	char cors[512];
 
 	(void)cors_build(cors, sizeof(cors), hdr, preflight);
 
-	int n;
+	int n = snprintf(
+		resp, sizeof(resp),
 
-	if (ctype && ctype[0]) {
-		n = snprintf(
-			resp, sizeof(resp),
+		"%s"
+		"%s"
+		"%s"
+		"%s"
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
 
-			"%s"
-			"%s"
-			"%s"
-			HTTP_LENGTH
-			HTTP_CLOSE
-			"\r\n",
-
-			status,
-			cors,
-			ctype,
-			len
-		);
-	}
-	else {
-		n = snprintf(
-			resp, sizeof(resp),
-
-			"%s"
-			"%s"
-			HTTP_LENGTH
-			HTTP_CLOSE
-			"\r\n",
-
-			status,
-			cors,
-			len
-		);
-	}
+		status,
+		cors,
+		(ctype && ctype[0]) ? ctype : "",
+		(extra && extra[0]) ? extra : "",
+		len
+	);
 
 	if (n < 0)
 		return;
@@ -375,33 +358,30 @@ static void reply_hdr(int c, const char* hdr, const char* status, const char* ct
 		n = (int)(sizeof(resp) - 1);
 
 	(void)write_all(c, resp, (size_t)n);
+
+	if (send_body && body && len > 0)
+		(void)write_all(c, body, len);
 }
 
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
 {
-	reply_hdr(c, hdr, status, HTTP_JSON, len, 0);
-
-	if (send_body)
-		(void)write_all(c, body, len);
+	reply(c, hdr, status, HTTP_JSON, NULL, body, len, send_body, 0);
 }
-
 
 static void reply_m3u(int c, const char* hdr, const char* status, size_t len)
 {
-	reply_hdr(c, hdr, status, HTTP_M3U, len, 0);
+	reply(c, hdr, status, HTTP_M3U, NULL, NULL, len, 0, 0);
 }
 
 static void reply_preflight(int c, const char* hdr)
 {
-	reply_hdr(c, hdr, HTTP_204, NULL, (size_t)0, 1);
+	reply(c, hdr, HTTP_204, NULL, NULL, NULL, (size_t)0, 0, 1);
 }
 
 static void reply_text(int c, const char* hdr, const char* status, const char* body)
 {
 	size_t len = strlen(body);
-
-	reply_hdr(c, hdr, status, HTTP_TEXT, len, 0);
-	(void)write_all(c, body, len);
+	reply(c, hdr, status, HTTP_TEXT, NULL, body, len, 1, 0);
 }
 
 static void reply_unauth(int c, const char* hdr, int send_body)
@@ -409,31 +389,16 @@ static void reply_unauth(int c, const char* hdr, int send_body)
 	const char* body = "unauthorized\n";
 	size_t blen = strlen(body);
 
-	char cors[512];
-	(void)cors_build(cors, sizeof(cors), hdr, 0);
-
-	char resp[HTTP_RESP_MAX];
-	int n = snprintf(
-		resp, sizeof(resp),
-		"HTTP/1.1 401 Unauthorized\r\n"
-		"%s"
-		"WWW-Authenticate: Basic realm=\"parados\"\r\n"
-		HTTP_TEXT
-		HTTP_LENGTH
-		HTTP_CLOSE
-		"\r\n",
-		cors,
-		blen
+	reply(
+		c, hdr,
+		"HTTP/1.1 401 Unauthorized\r\n",
+		HTTP_TEXT,
+		"WWW-Authenticate: Basic realm=\"parados\"\r\n",
+		body,
+		blen,
+		send_body,
+		0
 	);
-
-	if (n < 0)
-		return;
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
-
-	(void)write_all(c, resp, (size_t)n);
-	if (send_body)
-		(void)write_all(c, body, blen);
 }
 
 static int queue_write(int c, const char* hdr, int head_only, const struct user* u)
@@ -557,9 +522,6 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	size_t start = 0;
 	size_t end = total ? (total - 1) : 0;
 	const char* type = mime_from_path(it->path);
-	char cors[512];
-
-	(void)cors_build(cors, sizeof(cors), hdr, 0);
 
 	int partial = parse_range(hdr, total, &start, &end);
 	if (partial == RANGE_BAD) {
@@ -585,49 +547,40 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	size_t len = (total == 0) ? 0 : (end - start + 1);
 
 	/* build response header */
-	char resp[HTTP_RESP_MAX];
-	int n;
+	char ctype[128];
+	char extra[256];
 
-	if (partial == RANGE_OK) {
-		/* partial */
-		n = snprintf(
-			resp, sizeof(resp),
-			"%s"
-			HTTP_CTYPE
-			"%s"
-			HTTP_RANGE
-			HTTP_CRG
-			HTTP_LENGTH
-			HTTP_CLOSE
-			"\r\n",
-			HTTP_206, type, cors, start, end, total, len
-		);
-	}
-	else {
-		/* non-partial */
-		n = snprintf(
-			resp, sizeof(resp),
-			"%s"
-			HTTP_CTYPE
-			"%s"
-			HTTP_RANGE
-			HTTP_LENGTH
-			HTTP_CLOSE
-			"\r\n",
-			HTTP_200, type, cors, len
-		);
-	}
-
-	if (n < 0) {
+	if (snprintf(ctype, sizeof(ctype), HTTP_CTYPE, type) >= (int)sizeof(ctype)) {
 		close(fd);
+		reply_text(c, hdr, HTTP_500, "Server error\n");
 		return -1;
 	}
 
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
+	if (partial == RANGE_OK) {
+		/* partial */
+		if (snprintf(
+			extra, sizeof(extra),
+			HTTP_RANGE
+			HTTP_CRG,
+			start, end, total
+		) >= (int)sizeof(extra)) {
+			close(fd);
+			reply_text(c, hdr, HTTP_500, "Server error\n");
+			return -1;
+		}
 
-	/* send headers */
-	(void)write_all(c, resp, (size_t)n);
+		reply(c, hdr, HTTP_206, ctype, extra, NULL, len, 0, 0);
+	}
+	else {
+		/* non-partial */
+		if (snprintf(extra, sizeof(extra), HTTP_RANGE) >= (int)sizeof(extra)) {
+			close(fd);
+			reply_text(c, hdr, HTTP_500, "Server error\n");
+			return -1;
+		}
+
+		reply(c, hdr, HTTP_200, ctype, extra, NULL, len, 0, 0);
+	}
 
 	/* HEAD: no body */
 	if (head_only) {
