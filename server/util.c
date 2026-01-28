@@ -126,6 +126,20 @@ int join_path(char* out, size_t outsz, const char* a, const char* b)
 	return snprintf(out, outsz, "%s/%s", a, b) < (int)outsz ? 0 : -1;
 }
 
+void secure_bzero(void* p, size_t n)
+{
+	if (!p || n == 0)
+		return;
+
+#if defined(__OpenBSD__)
+	explicit_bzero(p, n);
+#else
+	volatile unsigned char* vp = (volatile unsigned char*)p;
+	while (n--)
+		*vp++ = 0;
+#endif
+}
+
 int write_all(int fd, const void* buf, size_t n)
 {
 	const char* p = buf;

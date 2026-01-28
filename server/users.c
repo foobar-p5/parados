@@ -194,12 +194,14 @@ const struct user* users_auth_from_hdr(const char* hdr)
 	unsigned char dec[512];
 	if (b64_decode(dec, sizeof(dec), p) < 0) {
 		LOG(verbose_log, "AUTH", "Basic Auth         B64 decode failed");
+		secure_bzero(dec, sizeof(dec));
 		return NULL;
 	}
 
 	char* sep = strchr((char*)dec, ':');
 	if (!sep) {
 		LOG(verbose_log, "AUTH", "Basic Auth         Decoded but missing ':'");
+		secure_bzero(dec, sizeof(dec));
 		return NULL;
 	}
 
@@ -210,6 +212,7 @@ const struct user* users_auth_from_hdr(const char* hdr)
 	const struct user* u = find_user(user);
 	if (!u) {
 		LOG(true, "AUTH", "Login FAILED Unknown user '%s'", user);
+		secure_bzero(dec, sizeof(dec));
 		return NULL;
 	}
 
@@ -217,18 +220,22 @@ const struct user* users_auth_from_hdr(const char* hdr)
 	if (u->pass[0] == '\0') {
 		if (pass[0] == '\0') {
 			LOG(true, "AUTH", "Login OK           %s", user);
+			secure_bzero(dec, sizeof(dec));
 			return u;
 		}
 		LOG(true, "AUTH", "Login FAILED       %s", user);
+		secure_bzero(dec, sizeof(dec));
 		return NULL;
 	}
 
 	if (!ct_equal(u->pass, pass)) {
 		LOG(true, "AUTH", "Login FAILED Bad password %s", user);
+		secure_bzero(dec, sizeof(dec));
 		return NULL;
 	}
 
 	LOG(verbose_log, "AUTH", "Login OK           %s", user);
+	secure_bzero(dec, sizeof(dec));
 	return u;
 }
 
