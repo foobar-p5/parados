@@ -173,7 +173,6 @@ log:
 	char port[8];
 	snprintf(port, sizeof(port), "%d", server_port);
 	LOG(true, "CONF", "Server Port        %s", port);
-
 	LOG(true, "CONF", "Verbose Logging    %s", (verbose_log) ? "true" : "false");
 	LOG(true, "CONF", "CORS origins       %s", cors_origin);
 

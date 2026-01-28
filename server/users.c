@@ -152,11 +152,11 @@ bool user_allows_path(const struct user* u, const char* relpath)
 int users_add_allow(const char* prefix)
 {
 	if (users.len == 0 || !prefix) {
-		LOG(true, "AUTH", "Missing user or prefix");
+		LOG(true, "AUTH", "AddAllow FAILED     No user or prefix");
 		return -1;
 	}
 
-	LOG(verbose_log, "AUTH", "Allow for %s: %s", users.v[users.len - 1].name, prefix);
+	LOG(verbose_log, "AUTH", "Allow directories  %s %s", users.v[users.len - 1].name, prefix);
 
 	return allow_push(&users.v[users.len - 1], prefix);
 }
@@ -168,7 +168,7 @@ const struct user* users_auth_from_hdr(const char* hdr)
 
 	char auth[512];
 	if (hdr_get_value(auth, hdr, "authorization") < 0) {
-		LOG(true, "AUTH", "No Authorization header");
+		LOG(true, "AUTH", "Authorization      Not found");
 		return NULL;
 	}
 
@@ -178,7 +178,7 @@ const struct user* users_auth_from_hdr(const char* hdr)
 		p++;
 
 	if (strncasecmp(p, "Basic", 5) != 0) {
-		LOG(verbose_log, "AUTH", "Authorization not Basic");
+		LOG(verbose_log, "AUTH", "Authorization      Not Basic");
 		return NULL;
 	}
 
@@ -187,19 +187,19 @@ const struct user* users_auth_from_hdr(const char* hdr)
 		p++;
 
 	if (*p == '\0') {
-		LOG(verbose_log, "AUTH", "Basic auth missing token");
+		LOG(verbose_log, "AUTH", "Basic Auth         Missing token");
 		return NULL;
 	}
 
 	unsigned char dec[512];
 	if (b64_decode(dec, sizeof(dec), p) < 0) {
-		LOG(verbose_log, "AUTH", "Basic auth b64 decode failed");
+		LOG(verbose_log, "AUTH", "Basic Auth         B64 decode failed");
 		return NULL;
 	}
 
 	char* sep = strchr((char*)dec, ':');
 	if (!sep) {
-		LOG(verbose_log, "AUTH", "Basic auth decoded but missing ':'");
+		LOG(verbose_log, "AUTH", "Basic Auth         Decoded but missing ':'");
 		return NULL;
 	}
 
@@ -209,26 +209,26 @@ const struct user* users_auth_from_hdr(const char* hdr)
 
 	const struct user* u = find_user(user);
 	if (!u) {
-		LOG(true, "AUTH", "Auth failed: unknown user '%s'", user);
+		LOG(true, "AUTH", "Login FAILED Unknown user '%s'", user);
 		return NULL;
 	}
 
 	/* empty password -> passwordless account */
 	if (u->pass[0] == '\0') {
 		if (pass[0] == '\0') {
-			LOG(true, "AUTH", "Auth ok: %s (passwordless)", user);
+			LOG(true, "AUTH", "Login OK           %s", user);
 			return u;
 		}
-		LOG(true, "AUTH", "Auth failed: %s (passwordless but pass given)", user);
+		LOG(true, "AUTH", "Login FAILED       %s", user);
 		return NULL;
 	}
 
 	if (!ct_equal(u->pass, pass)) {
-		LOG(true, "AUTH", "Auth failed: bad password for %s", user);
+		LOG(true, "AUTH", "Login FAILED Bad password %s", user);
 		return NULL;
 	}
 
-	LOG(verbose_log, "AUTH", "Auth ok: %s", user);
+	LOG(verbose_log, "AUTH", "Login OK           %s", user);
 	return u;
 }
 
@@ -253,7 +253,7 @@ void users_free(void)
 int users_push(const char* name)
 {
 	if (!name || name[0] == '\0') {
-		LOG(true, "AUTH", "Empty username");
+		LOG(true, "AUTH", "UserAdd FAILED     Empty username");
 		return -1;
 	}
 
@@ -261,7 +261,7 @@ int users_push(const char* name)
 		size_t ncap = users.cap ? (users.cap * 2) : 8;
 		struct user* nv = realloc(users.v, ncap * sizeof(*nv));
 		if (!nv) {
-			LOG(true, "AUTH", "realloc failed (cap=%zu -> %zu)", users.cap, ncap);
+			LOG(true, "AUTH", "realloc FAILED     (cap=%zu -> %zu)", users.cap, ncap);
 			return -1;
 		}
 		users.v = nv;
@@ -271,7 +271,7 @@ int users_push(const char* name)
 	memset(&users.v[users.len], 0, sizeof(users.v[users.len]));
 	snprintf(users.v[users.len].name, sizeof(users.v[users.len].name), "%s", name);
 
-	LOG(verbose_log, "AUTH", "User added: %s", users.v[users.len].name);
+	LOG(verbose_log, "AUTH", "UserAdd SUCCESS    %s", users.v[users.len].name);
 
 	users.len++;
 	return 0;
@@ -280,7 +280,7 @@ int users_push(const char* name)
 int users_set_pass(const char* pass)
 {
 	if (users.len == 0) {
-		LOG(true, "AUTH", "No user yet");
+		LOG(true, "AUTH", "SetPass FAILED     No users");
 		return -1;
 	}
 
@@ -291,8 +291,8 @@ int users_set_pass(const char* pass)
 	snprintf(users.v[users.len - 1].pass, sizeof(users.v[users.len - 1].pass), "%s", pass);
 
 	LOG(
-		verbose_log, "AUTH", "Pass set for user: %s (%s)",
-		users.v[users.len - 1].name, (pass[0] == '\0') ? "empty" : "non-empty"
+		verbose_log, "AUTH", "Password set for   %s (%s)",
+		users.v[users.len - 1].name, (pass[0] == '\0') ? "none" : ""
 	);
 	return 0;
 }
