@@ -3,24 +3,29 @@
 .Os
 .Sh NAME
 .Nm parados
-.Nd simple (HTTP) media server
+.Nd simple HTTP media server
 .Sh SYNOPSIS
 .Nm parados
+.Op Fl v
 .Sh DESCRIPTION
 .Nm
-is a minimal (HTTP) media server used to serve local audio and video
-files over a network.
-It provides a small and stable interface designed to be used by
-external clients such as media players or web frontend interfaces.
+is a minimal HTTP media server for serving local audio and video files
+over a network.
+It exposes a HTTP interface intended for use by external
+clients such as media players or web frontends.
 .Pp
 The server scans a directory tree at startup and exposes the contents
-through its simple HTTP API.
-Each file is assigned a hashed identifier derived from its relative
-path.
+through a simple HTTP API.
+Each file is assigned an identifier derived from its relative path.
 .Pp
 .Nm
-does not provide a graphical interface.
-All user interaction is expected to occur through clients.
+does not provide a user interface;
+all interaction is expected to happen through clients.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl v
+Print version information and exit.
+.El
 .Sh OPERATION
 On startup,
 .Nm
@@ -28,57 +33,48 @@ performs the following steps:
 .Bl -enum -compact
 .It
 Load configuration from
-.Pa /etc/parados.conf,
-or 
-.Pa ./parados.conf
-if the system-wide file is not present.
+.Pa /etc/parados.conf
+or, if not present,
+.Pa ./parados.conf .
 .It
-Scan the configured media directory and build a library.
+Parse user and access rules.
+.It
+Scan the configured media directory and build the media library.
 .It
 Bind to the configured address and port.
 .It
-Accept HTTP connections and serve requests.
+Accept and handle HTTP requests.
 .El
 .Pp
 Each incoming connection is handled independently.
-The server is designed for minimising complexity as opposed to concurrency.
-.Sh HTTP INTERFACE
-The following endpoints are provided:
-.Bl -tag -width Ds
-.It Pa /ping
-Return a plain text response to indicate that the server is running.
-.It Pa /library
-Return a JSON document describing the media library.
-.It Pa /meta/<id>
-Return metadata for a single media item.
-.It Pa /stream/<id>
-Stream the raw contents of a media file.
-Byte range requests are supported.
-.It Pa /queue
-Return an M3U playlist containing all accessible media items.
-.El
-.Pp
-Authentication may be required depending on configuration.
-.Sh AUTHENTICATION
+Connections are closed after each request.
+.Sh LOGGING
 .Nm
-supports HTTP Basic authentication.
+writes diagnostic and status messages to standard error.
+.Pp
+Logging verbosity is controlled by the
+.Ic verbose_log
+setting in
+.Xr parados.conf 5 .
+.Sh HTTP INTERFACE
+The HTTP interface is documented in
+.Xr parados 7 .
+.Sh AUTHENTICATION
 Authentication is optional and configured through
 .Xr parados.conf 5 .
 .Pp
-If no users are defined, requests are served without authentication.
-If one or more users are defined, all requests apart from
-.Pa /ping
-require valid credentials.
+If no users are defined, all requests are served without authentication.
+If one or more users are defined, HTTP Basic authentication is required
+for all endpoints except
+.Pa /ping .
 .Pp
-Access to files is restricted per user based on configured allow-list.
-.Sh CONFIGURATION
-Configuration is read from
-.Xr parados.conf 5 .
+Access to media files is restricted per user based on configured
+allow-lists.
 .Sh EXIT STATUS
 .Ex -std
 .Sh SEE ALSO
 .Xr parados.conf 5 ,
-.Xr parados-protocol 7
+.Xr parados 7
 .Sh AUTHORS
 .An Abhinav Prasai
 
