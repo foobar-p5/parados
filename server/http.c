@@ -185,16 +185,22 @@ static const char* mime_from_path(const char* path)
 
 static int parse_hex64(const char* s, uint64_t* out)
 {
-	char* end = NULL;
-
-	if (!s || *s == '\0')
+	if (!s || !out)
 		return -1;
 
+	if (strlen(s) != 16)
+		return -1;
+
+	for (size_t i = 0; i < 16; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+			return -1;
+	}
+
+	char* end = NULL;
 	errno = 0;
 	unsigned long long v = strtoull(s, &end, 16);
-	if (errno != 0)
-		return -1;
-	if (!end || *end != '\0')
+	if (errno != 0 || !end || *end != '\0')
 		return -1;
 
 	*out = (uint64_t)v;
