@@ -152,11 +152,11 @@ bool user_allows_path(const struct user* u, const char* relpath)
 int users_add_allow(const char* prefix)
 {
 	if (users.len == 0 || !prefix) {
-		LOG(true, "AUTH", "users_add_allow: missing user or prefix");
+		LOG(true, "AUTH", "Missing user or prefix");
 		return -1;
 	}
 
-	LOG(verbose_log, "AUTH", "allow for %s: %s", users.v[users.len - 1].name, prefix);
+	LOG(verbose_log, "AUTH", "Allow for %s: %s", users.v[users.len - 1].name, prefix);
 
 	return allow_push(&users.v[users.len - 1], prefix);
 }
@@ -168,7 +168,7 @@ const struct user* users_auth_from_hdr(const char* hdr)
 
 	char auth[512];
 	if (hdr_get_value(auth, hdr, "authorization") < 0) {
-		LOG(true, "AUTH", "no Authorization header");
+		LOG(true, "AUTH", "No Authorization header");
 		return NULL;
 	}
 
@@ -209,26 +209,26 @@ const struct user* users_auth_from_hdr(const char* hdr)
 
 	const struct user* u = find_user(user);
 	if (!u) {
-		LOG(true, "AUTH", "auth failed: unknown user '%s'", user);
+		LOG(true, "AUTH", "Auth failed: unknown user '%s'", user);
 		return NULL;
 	}
 
 	/* empty password -> passwordless account */
 	if (u->pass[0] == '\0') {
 		if (pass[0] == '\0') {
-			LOG(true, "AUTH", "auth ok: %s (passwordless)", user);
+			LOG(true, "AUTH", "Auth ok: %s (passwordless)", user);
 			return u;
 		}
-		LOG(true, "AUTH", "auth failed: %s (passwordless) but pass given", user);
+		LOG(true, "AUTH", "Auth failed: %s (passwordless but pass given)", user);
 		return NULL;
 	}
 
 	if (!ct_equal(u->pass, pass)) {
-		LOG(true, "AUTH", "auth failed: bad password for %s", user);
+		LOG(true, "AUTH", "Auth failed: bad password for %s", user);
 		return NULL;
 	}
 
-	LOG(verbose_log, "AUTH", "auth ok: %s", user);
+	LOG(verbose_log, "AUTH", "Auth ok: %s", user);
 	return u;
 }
 
@@ -253,7 +253,7 @@ void users_free(void)
 int users_push(const char* name)
 {
 	if (!name || name[0] == '\0') {
-		LOG(true, "AUTH", "empty username");
+		LOG(true, "AUTH", "Empty username");
 		return -1;
 	}
 
@@ -271,7 +271,7 @@ int users_push(const char* name)
 	memset(&users.v[users.len], 0, sizeof(users.v[users.len]));
 	snprintf(users.v[users.len].name, sizeof(users.v[users.len].name), "%s", name);
 
-	LOG(verbose_log, "AUTH", "user added: %s", users.v[users.len].name);
+	LOG(verbose_log, "AUTH", "User added: %s", users.v[users.len].name);
 
 	users.len++;
 	return 0;
@@ -280,7 +280,7 @@ int users_push(const char* name)
 int users_set_pass(const char* pass)
 {
 	if (users.len == 0) {
-		LOG(true, "AUTH", "no user yet");
+		LOG(true, "AUTH", "No user yet");
 		return -1;
 	}
 
@@ -291,7 +291,7 @@ int users_set_pass(const char* pass)
 	snprintf(users.v[users.len - 1].pass, sizeof(users.v[users.len - 1].pass), "%s", pass);
 
 	LOG(
-		verbose_log, "AUTH", "pass set for user: %s (%s)",
+		verbose_log, "AUTH", "Pass set for user: %s (%s)",
 		users.v[users.len - 1].name, (pass[0] == '\0') ? "empty" : "non-empty"
 	);
 	return 0;

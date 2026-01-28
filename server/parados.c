@@ -47,7 +47,7 @@ void run(void)
 				continue;
 			continue;
 		}
-		LOG(verbose_log, "CORE", "connection accepted");
+		LOG(verbose_log, "CORE", "Connection accepted");
 
 		pid_t pid = fork();
 		if (pid < 0) {
@@ -98,13 +98,13 @@ void setup(void)
 
 	if (scan_library(&lib, media_dir) < 0)
 		die("scan_library", EXIT_FAILURE);
-	LOG(verbose_log, "SCAN", "cached %zu items", lib.len);
+	LOG(verbose_log, "SCAN", "Cached %zu items", lib.len);
 
 	ret = listen(sock, LISTEN_BACKLOG);
 	if (ret < 0)
 		die("listen", EXIT_FAILURE);
 
-	LOG(verbose_log, "CORE", "listening on %s:%d", server_addr, server_port);
+	LOG(verbose_log, "CORE", "Listening on %s:%d", server_addr, server_port);
 }
 
 int main(void)

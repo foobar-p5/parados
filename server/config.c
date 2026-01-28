@@ -162,20 +162,20 @@ void config_load(void)
 		goto log;
 	}
 
-	LOG(true, "CONF", "unable to load configuration... using defaults", e);
+	LOG(true, "CONF", "Unable to load configuration... using defaults", e);
 	return;
 
 log:
-	LOG(true, "CONF", "Config File:       %s", path);
-	LOG(true, "CONF", "Media Directory:   %s", media_dir);
-	LOG(true, "CONF", "Server Address:    %s", server_addr);
+	LOG(true, "CONF", "Config File        %s", path);
+	LOG(true, "CONF", "Media Directory    %s", media_dir);
+	LOG(true, "CONF", "Server Address     %s", server_addr);
 
 	char port[8];
 	snprintf(port, sizeof(port), "%d", server_port);
-	LOG(true, "CONF", "Server Port:       %s", port);
+	LOG(true, "CONF", "Server Port        %s", port);
 
-	LOG(true, "CONF", "Verbose Logging:   %s", (verbose_log) ? "true" : "false");
-	LOG(true, "CONF", "CORS origins:      %s", cors_origin);
+	LOG(true, "CONF", "Verbose Logging    %s", (verbose_log) ? "true" : "false");
+	LOG(true, "CONF", "CORS origins       %s", cors_origin);
 
 	return;
 }

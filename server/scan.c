@@ -36,7 +36,7 @@ static int library_push(struct library* l, const char* rel)
 		size_t ncap = l->cap ? (l->cap * 2) : 64;
 		struct item* ni = realloc(l->items, ncap * sizeof(*ni));
 		if (!ni) {
-			LOG(verbose_log, "SCAN", "out of memory");
+			LOG(verbose_log, "SCAN", "Out of memory");
 			return -1;
 		}
 		l->items = ni;

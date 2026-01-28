@@ -525,16 +525,16 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 
 	/* build absolute path */
 	if (join_path(full, sizeof(full), media_dir, it->path) < 0) {
-		LOG(verbose_log, "HTTP", "path too long");
-		reply_text(c, hdr, HTTP_500, "server error\n");
+		LOG(verbose_log, "HTTP", "Path too long");
+		reply_text(c, hdr, HTTP_500, "Server error\n");
 		return -1;
 	}
 
 	/* open file */
 	int fd = open(full, O_RDONLY);
 	if (fd < 0) {
-		LOG(verbose_log, "HTTP", "open failed: %s", it->path);
-		reply_text(c, hdr, HTTP_404, "not found\n");
+		LOG(verbose_log, "HTTP", "Open failed: %s", it->path);
+		reply_text(c, hdr, HTTP_404, "Not found\n");
 		return 0;
 	}
 
@@ -542,14 +542,14 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	struct stat st;
 	if (fstat(fd, &st) < 0) {
 		close(fd);
-		reply_text(c, hdr, HTTP_500, "server error\n");
+		reply_text(c, hdr, HTTP_500, "Server error\n");
 		return -1;
 	}
 
 	/* reject non-regular files */
 	if (!S_ISREG(st.st_mode)) {
 		close(fd);
-		reply_text(c, hdr, HTTP_404, "not found\n");
+		reply_text(c, hdr, HTTP_404, "Not found\n");
 		return 0;
 	}
 
@@ -634,9 +634,9 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 		close(fd);
 
 		if (partial == RANGE_OK)
-			LOG(verbose_log, "HTTP", "header %s [%zu-%zu/%zu]", it->path, start, end, total);
+			LOG(verbose_log, "HTTP", "Header %s [%zu-%zu/%zu]", it->path, start, end, total);
 		else
-			LOG(verbose_log, "HTTP", "header %s (%zu bytes)", it->path, total);
+			LOG(verbose_log, "HTTP", "Header %s (%zu bytes)", it->path, total);
 
 		return 0;
 	}
@@ -669,9 +669,9 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	close(fd);
 
 	if (partial == RANGE_OK)
-		LOG(verbose_log, "HTTP", "streamed %s [%zu-%zu/%zu]", it->path, start, end, total);
+		LOG(verbose_log, "HTTP", "Streamed %s [%zu-%zu/%zu]", it->path, start, end, total);
 	else
-		LOG(verbose_log, "HTTP", "streamed %s (%zu bytes)", it->path, total);
+		LOG(verbose_log, "HTTP", "Streamed %s (%zu bytes)", it->path, total);
 
 	return 0;
 }
@@ -691,7 +691,7 @@ int http_handle(int c)
 		reply_text(c, hdr, HTTP_400, "bad request\n");
 		return -1;
 	}
-	LOG(verbose_log, "HTTP", "request: %s %s", method, path);
+	LOG(verbose_log, "HTTP", "Request: %s %s", method, path);
 
 	int head_only = 0;
 	if (strcmp(method, "GET") == 0) {
@@ -705,13 +705,13 @@ int http_handle(int c)
 		return 0;
 	}
 	else {
-		LOG(verbose_log, "HTTP", "method not allowed: %s", method);
+		LOG(verbose_log, "HTTP", "Method not allowed: %s", method);
 		reply_text(c, hdr, HTTP_405, "method not allowed\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
-		LOG(verbose_log, "HTTP", "route /ping");
+		LOG(verbose_log, "HTTP", "Route /ping");
 		reply_text(c, hdr, HTTP_200, "ok\n");
 		return 0;
 	}
@@ -725,7 +725,7 @@ int http_handle(int c)
 	}
 
 	if (strcmp(path, "/library") == 0) {
-		LOG(verbose_log, "HTTP", "route /library");
+		LOG(verbose_log, "HTTP", "Route /library");
 		struct json j;
 		struct library view;
 		memset(&view, 0, sizeof(view));
@@ -754,11 +754,11 @@ int http_handle(int c)
 			if (u)
 				free(view.items);
 
-			LOG(verbose_log, "JSON", "encode failed");
+			LOG(verbose_log, "JSON", "Encode failed");
 			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
 		}
-		LOG(verbose_log, "JSON", "encoded %zu bytes", j.len);
+		LOG(verbose_log, "JSON", "Encoded %zu bytes", j.len);
 
 		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
@@ -770,7 +770,7 @@ int http_handle(int c)
 	}
 
 	if (strncmp(path, "/stream/", 8) == 0) {
-		LOG(verbose_log, "HTTP", "route /stream");
+		LOG(verbose_log, "HTTP", "Route /stream");
 
 		uint64_t id;
 		if (parse_hex64(path + 8, &id) < 0) {
@@ -792,7 +792,7 @@ int http_handle(int c)
 	}
 
 	if (strncmp(path, "/meta/", 6) == 0) {
-		LOG(verbose_log, "HTTP", "route /meta");
+		LOG(verbose_log, "HTTP", "Route /meta");
 
 		uint64_t id;
 		if (parse_hex64(path + 6, &id) < 0) {
@@ -831,7 +831,7 @@ int http_handle(int c)
 	}
 
 	if (strcmp(path, "/queue") == 0) {
-		LOG(verbose_log, "HTTP", "route /queue");
+		LOG(verbose_log, "HTTP", "Route /queue");
 
 		if (queue_write(c, hdr, head_only, u) < 0) {
 			reply_text(c, hdr, HTTP_500, "server error\n");
@@ -841,7 +841,7 @@ int http_handle(int c)
 		return 0;
 	}
 
-	LOG(verbose_log, "HTTP", "route not found: %s", path);
+	LOG(verbose_log, "HTTP", "Route not found: %s", path);
 	reply_text(c, hdr, HTTP_404, "not found\n");
 
 	return 0;
