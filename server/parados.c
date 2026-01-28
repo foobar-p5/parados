@@ -1,8 +1,11 @@
-/*  parados
-		the simple home media server
+/*            parados
+	the simple home media server
 
-	this software is licensed under ISC
-	check LICENCE for more details
+	See parados(1), parados(7), parados.conf(5)
+	for usage information
+
+	This software is licensed under ISC.
+	Check LICENCE for more details.
 */
 
 #include <errno.h>
@@ -47,7 +50,7 @@ void run(void)
 				continue;
 			continue;
 		}
-		LOG(verbose_log, "CORE", "Connection accepted");
+		LOG(verbose_log, "CORE", "Connection         Accepted");
 
 		pid_t pid = fork();
 		if (pid < 0) {
@@ -98,17 +101,37 @@ void setup(void)
 
 	if (scan_library(&lib, media_dir) < 0)
 		die("scan_library", EXIT_FAILURE);
-	LOG(verbose_log, "SCAN", "Cached %zu items", lib.len);
+	LOG(verbose_log, "SCAN", "Cached items       %zu", lib.len);
 
 	ret = listen(sock, LISTEN_BACKLOG);
 	if (ret < 0)
 		die("listen", EXIT_FAILURE);
 
-	LOG(verbose_log, "CORE", "Listening on %s:%d", server_addr, server_port);
+	LOG(verbose_log, "CORE", "Listening on       %s:%d", server_addr, server_port);
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
+	if (argc > 1) {
+		if (strcmp(argv[1], "-v") == 0) {
+			printf(
+				"parados v"VERSION"\n"
+				"\n"
+				"This software is licensed under ISC.\n"
+				"See LICENSE for license information.\n"
+				"\n"
+				"See parados(1), parados(7), parados.conf(5)\n"
+				"for usage information\n"
+			);
+			return EXIT_SUCCESS;
+		}
+		else {
+			printf("Invalid command\n");
+			printf("See parados(1) for more information\n");
+			return EXIT_FAILURE;
+		}
+	}
+
 	setup();
 #ifdef __OpenBSD__
 	if (pledge("stdio inet", NULL) < 0)
