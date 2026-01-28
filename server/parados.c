@@ -9,6 +9,7 @@
 */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -16,7 +17,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -28,12 +31,50 @@
 #include "log.h"
 #include "scan.h"
 
+static void apply_rlimits(void);
+static void fd_set_cloexec(int fd);
+static void sock_set_timeouts(int fd);
+
 void die(const char* s, int e);
 void run(void);
 void setup(void);
 
 int sock;
 struct library lib;
+
+static void apply_rlimits(void)
+{
+	struct rlimit rl;
+
+	rl.rlim_cur = 0;
+	rl.rlim_max = 0;
+	(void)setrlimit(RLIMIT_CORE, &rl);
+
+	rl.rlim_cur = 1024;
+	rl.rlim_max = 1024;
+	(void)setrlimit(RLIMIT_NOFILE, &rl);
+
+	rl.rlim_cur = 256;
+	rl.rlim_max = 256;
+	(void)setrlimit(RLIMIT_NPROC, &rl);
+}
+
+static void fd_set_cloexec(int fd)
+{
+	int f = fcntl(fd, F_GETFD);
+	if (f >= 0)
+		(void)fcntl(fd, F_SETFD, f | FD_CLOEXEC);
+}
+
+static void sock_set_timeouts(int fd)
+{
+	struct timeval tv;
+	tv.tv_sec = http_io_timeout;
+	tv.tv_usec = 0;
+
+	(void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	(void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
 
 void die(const char* s, int e)
 {
@@ -50,6 +91,7 @@ void run(void)
 				continue;
 			continue;
 		}
+		fd_set_cloexec(c);
 		LOG(verbose_log, "CORE", "Connection         Accepted");
 
 		pid_t pid = fork();
@@ -59,6 +101,11 @@ void run(void)
 		}
 
 		if (pid == 0) {
+#ifdef __OpenBSD__
+			if (pledge("stdio inet rpath", NULL) < 0)
+				_exit(EXIT_FAILURE);
+#endif
+			sock_set_timeouts(c);
 			(void)http_handle(c);
 			shutdown(c, SHUT_WR);
 			close(c);
@@ -76,11 +123,13 @@ void setup(void)
 								 them to turn into zombies */
 
 	config_load();
+	apply_rlimits();
 
 	int ret = 1;
 	sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0)
 		die("socket", EXIT_FAILURE);
+	fd_set_cloexec(sock);
 
 	int yes = 1;
 	ret = setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
@@ -108,6 +157,12 @@ void setup(void)
 		die("listen", EXIT_FAILURE);
 
 	LOG(verbose_log, "CORE", "Listening on       %s:%d", server_addr, server_port);
+#ifdef __OpenBSD__
+	if (unveil(media_dir, "r") < 0)
+		die("unveil", EXIT_FAILURE);
+	if (unveil(NULL, NULL) < 0)
+		die("unveil", EXIT_FAILURE);
+#endif
 }
 
 int main(int argc, char* argv[])
@@ -134,7 +189,7 @@ int main(int argc, char* argv[])
 
 	setup();
 #ifdef __OpenBSD__
-	if (pledge("stdio inet", NULL) < 0)
+	if (pledge("stdio inet proc rpath", NULL) < 0)
 		die("pledge", EXIT_FAILURE);
 #endif /* __OpenBSD__ */
 	run();

@@ -18,6 +18,7 @@ char server_addr[64] = "127.0.0.1";
 int  server_port = 8088;
 bool verbose_log = true;
 char cors_origin[1024] = "";
+int http_io_timeout = 5;
 
 static int load_path(const char* path)
 {
@@ -104,12 +105,23 @@ static int set_kv(const char* k, const char* v)
 		return 0;
 	}
 
-	/* auth */
 	if (strcmp(k, "cors_origin") == 0) {
 		snprintf(cors_origin, sizeof(cors_origin), "%s", v);
 		return 0;
 	}
 
+	if (strcmp(k, "io_timeout_sec") == 0) {
+		char* end = NULL;
+		long t = strtol(v, &end, 10);
+		if (!end || *end != '\0')
+			return -1;
+		if (t < 1 || t > 300)
+			return -1;
+		http_io_timeout = (int)t;
+		return 0;
+	}
+
+	/* auth */
 	if (strcmp(k, "user") == 0) {
 		return users_push(v);
 	}
@@ -166,15 +178,20 @@ void config_load(void)
 	return;
 
 log:
+	(void)0;
+
+	char port[8];
+	char tmo[16];
+
 	LOG(true, "CONF", "Config File        %s", path);
 	LOG(true, "CONF", "Media Directory    %s", media_dir);
 	LOG(true, "CONF", "Server Address     %s", server_addr);
-
-	char port[8];
 	snprintf(port, sizeof(port), "%d", server_port);
 	LOG(true, "CONF", "Server Port        %s", port);
 	LOG(true, "CONF", "Verbose Logging    %s", (verbose_log) ? "true" : "false");
 	LOG(true, "CONF", "CORS origins       %s", cors_origin);
+	snprintf(tmo, sizeof(tmo), "%d", http_io_timeout);
+	LOG(true, "CONF", "HTTP IO Timeout    %s", tmo);
 
 	return;
 }

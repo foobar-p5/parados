@@ -91,6 +91,25 @@ Example:
 .Bd -literal -offset indent
 cors_origin=http://127.0.0.1:8000
 .Ed
+
+.It Ic http_io_timeout
+Maximum number of seconds the server will block on a single socket
+read/write operation.
+.Pp
+This limits how long a client may stall for while sending a request or
+while receiving a response.
+If the timeout is exceeded, the connection is closed.
+.Pp
+This option used for protecting against stalled or bad-acting clients.
+This does not limit the duration of a request or stream, only I/O operations.
+.Pp
+Valid values are integers in the range 1 to 300.
+.Pp
+Example:
+.Bd -literal -offset indent
+http_io_timeout=5
+.Ed
+
 .El
 .Sh AUTHENTICATION
 Authentication entries are specified using repeated groups of the keys

@@ -7,9 +7,10 @@
 
 extern char media_dir[4096];
 extern char server_addr[64];
-extern int server_port;
-extern bool verbose_log;
 extern char cors_origin[1024];
+extern bool verbose_log;
+extern int server_port;
+extern int http_io_timeout;
 
 enum {
 	HTTP_REQ_MAX   = 8192,
