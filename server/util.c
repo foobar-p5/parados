@@ -35,60 +35,95 @@ const char* cistrstr(const char* hay, const char* nee)
 	return NULL;
 }
 
+static int ci_key_match(const char* a, const char* b, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		unsigned char ca = (unsigned char)a[i];
+		unsigned char cb = (unsigned char)b[i];
+		if (tolower(ca) != tolower(cb))
+			return 0;
+	}
+	return 1;
+}
+
 int hdr_get_value(char out[512], const char* hdr, const char* key)
 {
-	char pat1[64];
-	char pat2[64];
-	char pat3[64];
-
-	/* build patterns like "\nXXXX:" "\rXXXX:" "XXXX:" */
-	if (snprintf(pat1, sizeof(pat1), "\n%s:", key) >= (int)sizeof(pat1))
-		return -1;
-	if (snprintf(pat2, sizeof(pat2), "\r%s:", key) >= (int)sizeof(pat2))
-		return -1;
-	if (snprintf(pat3, sizeof(pat3), "%s:", key) >= (int)sizeof(pat3))
+	size_t klen = strlen(key);
+	if (!hdr || !key || klen == 0)
 		return -1;
 
-	const char* p = cistrstr(hdr, pat1);
-	if (!p)
-		p = cistrstr(hdr, pat2);
-	if (!p)
-		p = cistrstr(hdr, pat3);
-	if (!p)
+	const char* p = hdr;
+
+	/* skip request line */
+	const char* eol = strstr(p, "\r\n");
+	if (!eol)
 		return -1;
+	p = eol + 2;
 
-	p = strchr(p, ':');
-	if (!p)
-		return -1;
-	p++;
+	for (;;) {
+		if (p[0] == '\r' && p[1] == '\n')
+			break; /* end of headers */
 
-	while (*p == ' ' || *p == '\t')
-		p++;
+		const char* line_end = strstr(p, "\r\n");
+		if (!line_end)
+			break;
 
-	size_t n = 0;
-	while (*p && *p != '\r' && *p != '\n') {
-		if (n + 1 >= 512)
-			return -1;
-		out[n++] = *p++;
+		const char* colon = memchr(p, ':', (size_t)(line_end - p));
+		if (colon) {
+			size_t n = (size_t)(colon - p);
+
+			if (n == klen && ci_key_match(p, key, klen)) {
+				const char* v = colon + 1;
+				while (*v == ' ' || *v == '\t')
+					v++;
+
+				size_t outn = 0;
+				while (v < line_end) {
+					if (outn + 1 >= 512)
+						return -1;
+					out[outn++] = *v++;
+				}
+				out[outn] = '\0';
+
+				if (outn == 0)
+					return -1;
+
+				return 0;
+			}
+		}
+
+		p = line_end + 2;
 	}
-	out[n] = '\0';
 
-	if (n == 0)
-		return -1;
-
-	return 0;
+	return -1;
 }
 
 int join_path(char* out, size_t outsz, const char* a, const char* b)
 {
-	int n = snprintf(out, outsz, "%s/%s", a, b);
-	if (n < 0)
+	if (!out || outsz == 0 || !a || !b)
 		return -1;
 
-	if ((size_t)n >= outsz)
-		return -1;
+	if (a[0] == '\0') {
+		int n = snprintf(out, outsz, "%s", b);
+		if (n < 0 || (size_t)n >= outsz)
+			return -1;
+		return 0;
+	}
 
-	return 0;
+	if (b[0] == '\0') {
+		int n = snprintf(out, outsz, "%s", a);
+		if (n < 0 || (size_t)n >= outsz)
+			return -1;
+		return 0;
+	}
+
+	size_t al = strlen(a);
+
+	/* avoid double slashes */
+	if (a[al - 1] == '/')
+		return snprintf(out, outsz, "%s%s", a, b) < (int)outsz ? 0 : -1;
+
+	return snprintf(out, outsz, "%s/%s", a, b) < (int)outsz ? 0 : -1;
 }
 
 int write_all(int fd, const void* buf, size_t n)
