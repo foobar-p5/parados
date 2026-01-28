@@ -1,0 +1,117 @@
+.Dd January 28, 2026
+.Dt PARADOS 7
+.Os
+.Sh NAME
+.Nm parados
+.Nd HTTP protocol for the parados media server
+.Sh DESCRIPTION
+The
+.Nm
+protocol describes the HTTP interface provided by
+.Xr parados 1 .
+It is intended for simple clients and scripts.
+.Pp
+The protocol uses HTTP/1.1.
+Each request is handled on a separate connection, which is closed after
+the response.
+Persistent connections are not supported.
+.Pp
+Media items are identified by 64-bit identifiers encoded as 16 hexadecimal
+digits.
+.Sh REQUESTS
+All endpoints accept
+.Cm GET
+and
+.Cm HEAD
+requests.
+The server also accepts
+.Cm OPTIONS
+for CORS preflight.
+.Sh AUTHENTICATION
+If one or more users are configured,
+HTTP Basic authentication is required for all endpoints except
+.Pa /ping .
+.Pp
+Credentials are provided using the
+.Cm Authorization
+header.
+.Pp
+If no users are configured, authentication is disabled.
+.Sh ENDPOINTS
+.Bl -tag -width Ds
+.It Pa /ping
+Health check endpoint.
+Returns HTTP 200 with a short plain text body.
+.It Pa /library
+Return the media library as JSON.
+Each entry contains an item identifier and a relative path.
+.Pp
+Response format:
+.Bd -literal -offset indent
+{ "proto": 1, "items": [ { "id": "...", "path": "..." } ] }
+.Ed
+.It Pa /meta/{id}
+Return metadata for a single item.
+The response includes the item identifier, path, size in bytes, and MIME
+type.
+.It Pa /stream/{id}
+Stream the contents of a media item.
+Supports byte range requests using the
+.Cm Range
+header.
+.Pp
+Valid ranges return HTTP 206.
+Invalid ranges return HTTP 400 or HTTP 416.
+.It Pa /queue
+Return an M3U playlist containing stream URLs for all permitted items.
+.Pp
+If the request includes a
+.Cm Host
+header, it is used to construct playlist URLs.
+.El
+.Sh RESPONSES
+The server sets
+.Cm Content-Type
+based on file extension.
+Unknown types default to
+.Cm application/octet-stream .
+.Pp
+Most responses include
+.Cm Content-Length .
+Streaming responses may omit it.
+.Sh STATUS CODES
+.Bl -tag -width Ds
+.It Cm 200
+Request succeeded.
+.It Cm 204
+No content.
+.It Cm 206
+Partial content.
+.It Cm 400
+Bad request.
+.It Cm 401
+Authentication required or failed.
+.It Cm 404
+Resource not found or not permitted.
+.It Cm 405
+Method not allowed.
+.It Cm 416
+Requested range not satisfiable.
+.It Cm 500
+Internal server error.
+.El
+.Sh VERSIONING
+JSON responses include a
+.Cm proto
+field indicating the protocol version.
+Clients should reject unknown versions.
+.Sh NOTES
+The protocol does not provide sessions, persistent connections,
+transcoding, or server-side state.
+All higher-level behavior is handled by the client.
+.Sh SEE ALSO
+.Xr parados 1 ,
+.Xr parados.conf 5
+.Sh AUTHORS
+.An Abhinav Prasai
+

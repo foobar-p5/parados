@@ -1,0 +1,84 @@
+.Dd January 28, 2026
+.Dt PARADOS 1
+.Os
+.Sh NAME
+.Nm parados
+.Nd simple (HTTP) media server
+.Sh SYNOPSIS
+.Nm parados
+.Sh DESCRIPTION
+.Nm
+is a minimal (HTTP) media server used to serve local audio and video
+files over a network.
+It provides a small and stable interface designed to be used by
+external clients such as media players or web frontend interfaces.
+.Pp
+The server scans a directory tree at startup and exposes the contents
+through its simple HTTP API.
+Each file is assigned a hashed identifier derived from its relative
+path.
+.Pp
+.Nm
+does not provide a graphical interface.
+All user interaction is expected to occur through clients.
+.Sh OPERATION
+On startup,
+.Nm
+performs the following steps:
+.Bl -enum -compact
+.It
+Load configuration from
+.Pa /etc/parados.conf,
+or 
+.Pa ./parados.conf
+if the system-wide file is not present.
+.It
+Scan the configured media directory and build a library.
+.It
+Bind to the configured address and port.
+.It
+Accept HTTP connections and serve requests.
+.El
+.Pp
+Each incoming connection is handled independently.
+The server is designed for minimising complexity as opposed to concurrency.
+.Sh HTTP INTERFACE
+The following endpoints are provided:
+.Bl -tag -width Ds
+.It Pa /ping
+Return a plain text response to indicate that the server is running.
+.It Pa /library
+Return a JSON document describing the media library.
+.It Pa /meta/<id>
+Return metadata for a single media item.
+.It Pa /stream/<id>
+Stream the raw contents of a media file.
+Byte range requests are supported.
+.It Pa /queue
+Return an M3U playlist containing all accessible media items.
+.El
+.Pp
+Authentication may be required depending on configuration.
+.Sh AUTHENTICATION
+.Nm
+supports HTTP Basic authentication.
+Authentication is optional and configured through
+.Xr parados.conf 5 .
+.Pp
+If no users are defined, requests are served without authentication.
+If one or more users are defined, all requests apart from
+.Pa /ping
+require valid credentials.
+.Pp
+Access to files is restricted per user based on configured allow-list.
+.Sh CONFIGURATION
+Configuration is read from
+.Xr parados.conf 5 .
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr parados.conf 5 ,
+.Xr parados-protocol 7
+.Sh AUTHORS
+.An Abhinav Prasai
+

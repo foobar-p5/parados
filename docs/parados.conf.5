@@ -1,0 +1,186 @@
+.Dd January 28, 2026
+.Dt PARADOS.CONF 5
+.Os
+.Sh NAME
+.Nm parados.conf
+.Nd configuration file for parados
+.Sh DESCRIPTION
+The
+.Nm
+file configures
+.Xr parados 1 .
+.Pp
+The file format is line-oriented.
+Each non-empty, non-comment line is a key/value pair int he form:
+.Bd -literal -offset indent
+key=value
+.Ed
+.Pp
+Whitespace around keys and values are ignored.
+Lines beginning with
+.Sq #
+are comments and are ignored.
+Invalid keys are ignored.
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa /etc/parados.conf
+System-wide configuration file.
+.It Pa ./parados.conf
+Fallback configuration file in the current working directory.
+.El
+.Sh PARAMETERS
+.Bl -tag -width Ds
+.It Ic media_dir
+Directory containing all media files.
+The library is built by recursively scanning this directory at startup.
+.Pp
+Example:
+.Bd -literal -offset indent
+media_dir=/path/to/media
+.Ed
+.It Ic server_addr
+Address to bind the HTTP server to.
+Use
+.Cm 127.0.0.1
+to listen on the local host only.
+This is also recommended if you are soley using a WebUI interface
+hosted from the same device as exposing the server to the whole
+network may uncessesarily open your server to danger.
+Use
+.Cm 0.0.0.0
+to listen on all IPv4 interfaces.
+.Pp
+Example:
+.Bd -literal -offset indent
+server_addr=0.0.0.0
+.Ed
+.It Ic server_port
+TCP port to listen on.
+.Pp
+Example:
+.Bd -literal -offset indent
+server_port=8088
+.Ed
+.It Ic verbose_log
+Enable or disable verbose logging.
+Accepted values are
+.Cm 1 ,
+.Cm 0 ,
+.Cm true ,
+.Cm false ,
+.Cm yes ,
+and
+.Cm no
+(case-insensitive).
+.Pp
+Example:
+.Bd -literal -offset indent
+verbose_log=true
+.Ed
+.It Ic cors_origin
+Configure Cross-Origin Resource Sharing (CORS) for web clients.
+.Pp
+If empty, CORS header is sent.
+If set to
+.Cm * ,
+all origins are allowed, otherwise, the value is interpreted as a
+comma-separated list of allowed origins (clients that can interact
+over the web).
+.Pp
+Example:
+.Bd -literal -offset indent
+cors_origin=http://127.0.0.1:8000
+.Ed
+.El
+.Sh AUTHENTICATION
+Authentication entries are specified using repeated groups of the keys
+.Ic user ,
+.Ic pass ,
+and
+.Ic allow .
+.Pp
+If no
+.Ic user
+entries are present, authentication is disabled and all files are
+accessible.
+If one or more users are present, HTTP Basic authentication is required
+for all requests (except
+.Pa /ping ).
+.Pp
+Each
+.Ic user
+starts a new entry.
+The following
+.Ic pass
+and
+.Ic allow
+lines apply to that user until the next
+.Ic user
+line.
+.Bl -tag -width Ds
+.It Ic user
+Set the username for a new authentication entry.
+.Pp
+Example:
+.Bd -literal -offset indent
+user=glenda
+.Ed
+.It Ic pass
+Set the password for the most recently declared user.
+If empty, the account is passwordless and accepts only an empty password.
+.Pp
+Example:
+.Bd -literal -offset indent
+pass=secret
+.Ed
+.It Ic allow
+Add an allowed path prefix for the most recently declared user.
+Multiple
+.Ic allow
+directives may be used.
+.Pp
+A value of
+.Cm *
+allows all paths.
+Otherwise, the value must match the beginning of a file's relative path.
+The match allows directory boundaries.
+.Pp
+Example:
+.Bd -literal -offset indent
+allow=Media/
+allow=Music/
+.Ed
+.El
+.Sh EXAMPLES
+Minimal configuration:
+.Bd -literal -offset indent
+media_dir=/path/to/media
+server_addr=127.0.0.1
+server_port=8088
+verbose_log=true
+cors_origin=
+.Ed
+.Pp
+Two users with separate access:
+.Bd -literal -offset indent
+user=glenda
+pass=pass123
+allow=Media/
+allow=Music/
+
+user=bob
+pass=
+allow=TV/NBA/
+.Ed
+.Pp
+Single passwordless admin user with full access:
+.Bd -literal -offset indent
+user=admin
+pass=
+allow=*
+.Ed
+.Sh SEE ALSO
+.Xr parados 1
+.Sh AUTHORS
+.An Abhinav Prasai
+
