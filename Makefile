@@ -1,5 +1,6 @@
 CC ?= cc
-CPPFLAGS = -D_POSIX_C_SOURCE=200809L
+GIT_VER != git describe --always --tags 2>/dev/null || echo unknown
+CPPFLAGS = -D_POSIX_C_SOURCE=200809L -DGIT_VER=\"$(GIT_VER)\"
 CFLAGS = -std=c99 -Wall -Wextra -Iserver/include
 OUT = parados
 

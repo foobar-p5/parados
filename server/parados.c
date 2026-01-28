@@ -31,6 +31,10 @@
 #include "log.h"
 #include "scan.h"
 
+#ifndef GIT_VER
+#define GIT_VER "unknown"
+#endif /* GIT_VER */
+
 static void apply_rlimits(void);
 static void fd_set_cloexec(int fd);
 static void sock_set_timeouts(int fd);
@@ -170,13 +174,14 @@ int main(int argc, char* argv[])
 	if (argc > 1) {
 		if (strcmp(argv[1], "-v") == 0) {
 			printf(
-				"parados v"VERSION"\n"
+				"parados v%s-%s\n"
 				"\n"
 				"This software is licensed under ISC.\n"
 				"See LICENSE for license information.\n"
 				"\n"
 				"See parados(1), parados(7), parados.conf(5)\n"
-				"for usage information\n"
+				"for usage information\n",
+				VERSION, GIT_VER
 			);
 			return EXIT_SUCCESS;
 		}
