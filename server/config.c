@@ -5,6 +5,7 @@
 
 #include "config.h"
 #include "log.h"
+#include "users.h"
 
 static int load_path(const char* path);
 static int parse_bool(const char* s, bool* out);
@@ -73,7 +74,7 @@ static int parse_bool(const char* s, bool* out)
 
 static int set_kv(const char* k, const char* v)
 {
-	/* cmp keys */
+	/* regular */
 	if (strcmp(k, "media_dir") == 0) {
 		snprintf(media_dir, sizeof(media_dir), "%s", v);
 		return 0;
@@ -103,9 +104,22 @@ static int set_kv(const char* k, const char* v)
 		return 0;
 	}
 
+	/* auth */
 	if (strcmp(k, "cors_origin") == 0) {
 		snprintf(cors_origin, sizeof(cors_origin), "%s", v);
 		return 0;
+	}
+
+	if (strcmp(k, "user") == 0) {
+		return users_push(v);
+	}
+
+	if (strcmp(k, "pass") == 0) {
+		return users_set_pass(v);
+	}
+
+	if (strcmp(k, "allow") == 0) {
+		return users_add_allow(v);
 	}
 
 	/* unknown key */

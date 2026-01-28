@@ -16,6 +16,7 @@
 #include "json.h"
 #include "log.h"
 #include "scan.h"
+#include "users.h"
 #include "util.h"
 
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
@@ -29,7 +30,8 @@ static void reply_json(int c, const char* hdr, const char* status, const char* b
 static void reply_m3u(int c, const char* hdr, const char* status, size_t len);
 static void reply_preflight(int c, const char* hdr);
 static void reply_text(int c, const char* hdr, const char* status, const char* body);
-static int queue_write(int c, const char* hdr, int head_only);
+static void reply_unauth(int c, const char* hdr, int send_body);
+static int queue_write(int c, const char* hdr, int head_only, const struct user* u);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
@@ -91,12 +93,13 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 	if (preflight) {
 		n = snprintf(
 			out, outsz,
+
 			"Access-Control-Allow-Origin: %s\r\n"
 			"Vary: Origin\r\n"
 			"Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n"
-			"Access-Control-Allow-Headers: Range, Content-Type\r\n"
-			"Access-Control-Max-Age: 600\r\n"
-			"Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges, Content-Type\r\n",
+			"Access-Control-Allow-Headers: Range, Content-Type, Authorization\r\n"
+			"Access-Control-Max-Age: 600\r\n",
+
 			ao
 		);
 	}
@@ -374,7 +377,6 @@ static void reply_hdr(int c, const char* hdr, const char* status, const char* ct
 	(void)write_all(c, resp, (size_t)n);
 }
 
-
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
 {
 	reply_hdr(c, hdr, status, HTTP_JSON, len, 0);
@@ -402,7 +404,39 @@ static void reply_text(int c, const char* hdr, const char* status, const char* b
 	(void)write_all(c, body, len);
 }
 
-static int queue_write(int c, const char* hdr, int head_only)
+static void reply_unauth(int c, const char* hdr, int send_body)
+{
+	const char* body = "unauthorized\n";
+	size_t blen = strlen(body);
+
+	char cors[512];
+	(void)cors_build(cors, sizeof(cors), hdr, 0);
+
+	char resp[HTTP_RESP_MAX];
+	int n = snprintf(
+		resp, sizeof(resp),
+		"HTTP/1.1 401 Unauthorized\r\n"
+		"%s"
+		"WWW-Authenticate: Basic realm=\"parados\"\r\n"
+		HTTP_TEXT
+		HTTP_LENGTH
+		HTTP_CLOSE
+		"\r\n",
+		cors,
+		blen
+	);
+
+	if (n < 0)
+		return;
+	if ((size_t)n >= sizeof(resp))
+		n = (int)(sizeof(resp) - 1);
+
+	(void)write_all(c, resp, (size_t)n);
+	if (send_body)
+		(void)write_all(c, body, blen);
+}
+
+static int queue_write(int c, const char* hdr, int head_only, const struct user* u)
 {
 	char host[512];
 	char base[768];
@@ -421,6 +455,9 @@ static int queue_write(int c, const char* hdr, int head_only)
 	len += 8; /* "#EXTM3U\n" */
 
 	for (size_t i = 0; i < lib.len; i++) {
+		if (u && !user_allows_path(u, lib.items[i].path))
+			continue;
+
 		int n = snprintf(
 			NULL, 0,
 			"%s/stream/%016llx\n",
@@ -443,8 +480,10 @@ static int queue_write(int c, const char* hdr, int head_only)
 		return -1;
 
 	for (size_t i = 0; i < lib.len; i++) {
-		char line[2048];
+		if (u && !user_allows_path(u, lib.items[i].path))
+			continue;
 
+		char line[2048];
 		int n = snprintf(
 			line, sizeof(line),
 			"%s/stream/%016llx\n",
@@ -643,6 +682,11 @@ int http_handle(int c)
 	char path[1024];
 	char hdr[HTTP_REQ_MAX];
 
+	const struct user* u = NULL;
+	method[0] = '\0';
+	path[0] = '\0';
+	hdr[0] = '\0';
+
 	if (read_request(c, method, sizeof(method), path, sizeof(path), hdr, sizeof(hdr)) < 0) {
 		reply_text(c, hdr, HTTP_400, "bad request\n");
 		return -1;
@@ -672,11 +716,44 @@ int http_handle(int c)
 		return 0;
 	}
 
+	if (users.len > 0) {
+		u = users_auth_from_hdr(hdr);
+		if (!u) {
+			reply_unauth(c, hdr, !head_only);
+			return 0;
+		}
+	}
+
 	if (strcmp(path, "/library") == 0) {
 		LOG(verbose_log, "HTTP", "route /library");
 		struct json j;
+		struct library view;
+		memset(&view, 0, sizeof(view));
 
-		if (json_library(&j, &lib) < 0) {
+		if (!u) {
+			view = lib;
+		}
+		else {
+			if (lib.len > 0) {
+				view.items = calloc(lib.len, sizeof(*view.items));
+				if (!view.items) {
+					reply_text(c, hdr, HTTP_500, "server error\n");
+					return -1;
+				}
+			}
+
+			for (size_t i = 0; i < lib.len; i++) {
+				if (!user_allows_path(u, lib.items[i].path))
+					continue;
+				view.items[view.len++] = lib.items[i];
+			}
+			view.cap = view.len;
+		}
+
+		if (json_library(&j, &view) < 0) {
+			if (u)
+				free(view.items);
+
 			LOG(verbose_log, "JSON", "encode failed");
 			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
@@ -685,6 +762,9 @@ int http_handle(int c)
 
 		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
+
+		if (u)
+			free(view.items);
 
 		return 0;
 	}
@@ -703,6 +783,10 @@ int http_handle(int c)
 			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
+		if (u && !user_allows_path(u, it->path)) {
+			reply_text(c, hdr, HTTP_404, "not found\n");
+			return 0;
+		}
 
 		return stream_file(c, it, hdr, head_only);
 	}
@@ -718,6 +802,10 @@ int http_handle(int c)
 
 		const struct item* it = find_item(id);
 		if (!it) {
+			reply_text(c, hdr, HTTP_404, "not found\n");
+			return 0;
+		}
+		if (u && !user_allows_path(u, it->path)) {
 			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
@@ -745,7 +833,7 @@ int http_handle(int c)
 	if (strcmp(path, "/queue") == 0) {
 		LOG(verbose_log, "HTTP", "route /queue");
 
-		if (queue_write(c, hdr, head_only) < 0) {
+		if (queue_write(c, hdr, head_only, u) < 0) {
 			reply_text(c, hdr, HTTP_500, "server error\n");
 			return -1;
 		}
