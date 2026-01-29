@@ -27,11 +27,9 @@ static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
 static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight);
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
-static void reply_m3u(int c, const char* hdr, const char* status, size_t len);
 static void reply_preflight(int c, const char* hdr);
 static void reply_text(int c, const char* hdr, const char* status, const char* body);
 static void reply_unauth(int c, const char* hdr, int send_body);
-static int queue_write(int c, const char* hdr, int head_only, const struct user* u);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
@@ -374,11 +372,6 @@ static void reply_json(int c, const char* hdr, const char* status, const char* b
 	reply(c, hdr, status, HTTP_JSON, NULL, body, len, send_body, 0);
 }
 
-static void reply_m3u(int c, const char* hdr, const char* status, size_t len)
-{
-	reply(c, hdr, status, HTTP_M3U, NULL, NULL, len, 0, 0);
-}
-
 static void reply_preflight(int c, const char* hdr)
 {
 	reply(c, hdr, HTTP_204, NULL, NULL, NULL, (size_t)0, 0, 1);
@@ -405,73 +398,6 @@ static void reply_unauth(int c, const char* hdr, int send_body)
 		send_body,
 		0
 	);
-}
-
-static int queue_write(int c, const char* hdr, int head_only, const struct user* u)
-{
-	char host[512];
-	char base[768];
-
-	if (hdr_get_value(host, hdr, "host") == 0) {
-		if (snprintf(base, sizeof(base), "http://%s", host) >= (int)sizeof(base))
-			return -1;
-	}
-	else {
-		if (snprintf(base, sizeof(base), "http://%s:%d", server_addr, server_port) >= (int)sizeof(base))
-			return -1;
-	}
-
-	/* Content-Length */
-	size_t len = 0;
-	len += 8; /* "#EXTM3U\n" */
-
-	for (size_t i = 0; i < lib.len; i++) {
-		if (u && !user_allows_path(u, lib.items[i].path))
-			continue;
-
-		int n = snprintf(
-			NULL, 0,
-			"%s/stream/%016llx\n",
-			base,
-			(unsigned long long)lib.items[i].id
-		);
-
-		if (n < 0)
-			return -1;
-
-		len += (size_t)n;
-	}
-
-	reply_m3u(c, hdr, HTTP_200, len);
-
-	if (head_only)
-		return 0;
-
-	if (write_all(c, "#EXTM3U\n", 8) < 0)
-		return -1;
-
-	for (size_t i = 0; i < lib.len; i++) {
-		if (u && !user_allows_path(u, lib.items[i].path))
-			continue;
-
-		char line[2048];
-		int n = snprintf(
-			line, sizeof(line),
-			"%s/stream/%016llx\n",
-			base,
-			(unsigned long long)lib.items[i].id
-		);
-
-		if (n < 0)
-			return -1;
-		if ((size_t)n >= sizeof(line))
-			return -1;
-
-		if (write_all(c, line, (size_t)n) < 0)
-			return -1;
-	}
-
-	return 0;
 }
 
 static int stat_item(const struct item* it, struct stat* st)
@@ -785,17 +711,6 @@ int http_handle(int c)
 
 		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
 		json_free(&j);
-
-		return 0;
-	}
-
-	if (strcmp(path, "/queue") == 0) {
-		LOG(verbose_log, "HTTP", "Route              /queue");
-
-		if (queue_write(c, hdr, head_only, u) < 0) {
-			reply_text(c, hdr, HTTP_500, "server error\n");
-			return -1;
-		}
 
 		return 0;
 	}

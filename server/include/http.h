@@ -16,7 +16,6 @@
 #define HTTP_CTYPE  "Content-Type: %s\r\n"
 #define HTTP_JSON   "Content-Type: application/json\r\n"
 #define HTTP_LENGTH "Content-Length: %zu\r\n"
-#define HTTP_M3U    "Content-Type: audio/x-mpegurl\r\n"
 #define HTTP_RANGE  "Accept-Ranges: bytes\r\n"
 #define HTTP_TEXT   "Content-Type: text/plain\r\n"
 
