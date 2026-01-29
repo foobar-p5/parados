@@ -3,8 +3,6 @@
 
 #include <stdbool.h>
 
-#define VERSION "1.0"
-
 extern char media_dir[4096];
 extern char server_addr[64];
 extern char cors_origin[1024];
