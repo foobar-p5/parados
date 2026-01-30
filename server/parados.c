@@ -57,10 +57,6 @@ static void apply_rlimits(void)
 	rl.rlim_cur = 1024;
 	rl.rlim_max = 1024;
 	(void)setrlimit(RLIMIT_NOFILE, &rl);
-
-	rl.rlim_cur = 256;
-	rl.rlim_max = 256;
-	(void)setrlimit(RLIMIT_NPROC, &rl);
 }
 
 static void fd_set_cloexec(int fd)
