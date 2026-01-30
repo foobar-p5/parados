@@ -113,9 +113,10 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 
 	if (n < 0)
 		return 0;
-	if ((size_t)n >= outsz)
-		out[outsz - 1] = '\0';
-
+	if ((size_t)n >= outsz) {
+		out[0] = '\0';
+		return 0;
+	}
 	return 1;
 }
 
@@ -358,8 +359,11 @@ static void reply(int c, const char* hdr, const char* status, const char* ctype,
 	if (n < 0)
 		return;
 
-	if ((size_t)n >= sizeof(resp))
-		n = (int)(sizeof(resp) - 1);
+	if ((size_t)n >= sizeof(resp)) {
+		/* fail if header too large */
+		reply_text(c, hdr, HTTP_500, "server error\n");
+		return;
+	}
 
 	(void)write_all(c, resp, (size_t)n);
 
