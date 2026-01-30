@@ -10,12 +10,6 @@ extern bool verbose_log;
 extern int server_port;
 extern int http_io_timeout;
 
-enum {
-	HTTP_REQ_MAX   = 8192,
-	HTTP_RESP_MAX  = 2048,
-	LISTEN_BACKLOG = 64,
-};
-
 void config_load(void);
 
 #endif /* CONFIG_H */

@@ -26,6 +26,12 @@ enum {
 	RANGE_UNSAT = -2,  /* unsatisfiable (=> 416) */
 };
 
+enum {
+	HTTP_REQ_MAX   = 8192,
+	HTTP_RESP_MAX  = 8192,
+	LISTEN_BACKLOG = 64,
+};
+
 int http_handle(int c);
 
 #endif /* HTTP_H */
