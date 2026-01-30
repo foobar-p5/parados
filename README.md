@@ -33,3 +33,6 @@ _not_ be altered.** Please make sure you know how the
 formatting of the project looks like before submitting
 a PR.  
 
+### Repository Links
+[[GitHub](https://github.com/uint23/parados)] [[SourceHut](https://sr.ht/~uint/parados)]
+
