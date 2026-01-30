@@ -9,6 +9,7 @@ extern char cors_origin[1024];
 extern bool verbose_log;
 extern int server_port;
 extern int http_io_timeout;
+extern int max_clients;
 
 void config_load(void);
 

@@ -19,6 +19,7 @@ int  server_port = 8088;
 bool verbose_log = true;
 char cors_origin[1024] = "";
 int http_io_timeout = 5;
+int max_clients = 64;
 
 static int load_path(const char* path)
 {
@@ -91,8 +92,10 @@ static int set_kv(const char* k, const char* v)
 		long p = strtol(v, &end, 10);
 		if (!end || *end != '\0')
 			return -1;
+
 		if (p < 1 || p > 65535)
 			return -1;
+
 		server_port = (int)p;
 		return 0;
 	}
@@ -101,6 +104,7 @@ static int set_kv(const char* k, const char* v)
 		bool b;
 		if (parse_bool(v, &b) < 0)
 			return -1;
+
 		verbose_log = b;
 		return 0;
 	}
@@ -110,14 +114,29 @@ static int set_kv(const char* k, const char* v)
 		return 0;
 	}
 
-	if (strcmp(k, "io_timeout_sec") == 0) {
+	if (strcmp(k, "http_io_timeout") == 0) {
 		char* end = NULL;
 		long t = strtol(v, &end, 10);
 		if (!end || *end != '\0')
 			return -1;
+
 		if (t < 1 || t > 300)
 			return -1;
+
 		http_io_timeout = (int)t;
+		return 0;
+	}
+
+	if (strcmp(k, "max_clients") == 0) {
+		char* end = NULL;
+		long n = strtol(v, &end, 10);
+		if (!end || *end != '\0')
+			return -1;
+
+		if (n < 1 || n > 1024)
+			return -1;
+
+		max_clients = (int)n;
 		return 0;
 	}
 
