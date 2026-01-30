@@ -8,16 +8,13 @@
 
 #include "config.h"
 
-static inline const char* log_datetime(void)
+static inline void log_datetime(char out[20])
 {
-	static char datetime[20];
 	time_t t = time(NULL);
 	struct tm tmv;
 
 	localtime_r(&t, &tmv);
-	strftime(datetime, sizeof(datetime), "%d/%m/%Y %H:%M:%S", &tmv);
-
-	return datetime;
+	strftime(out, 20, "%d/%m/%Y %H:%M:%S", &tmv);
 }
 
 static inline void log_vprint(bool verbose, const char* tag,
@@ -29,7 +26,9 @@ static inline void log_vprint(bool verbose, const char* tag,
 	if (!verbose)
 		return;
 
-	fprintf(stderr, "%s [%s] ", log_datetime(), tag);
+	char dt[20];
+	log_datetime(dt);
+	fprintf(stderr, "%s [%s] ", dt, tag);
 
 #if defined(DEBUG)
 	fprintf(stderr, "[%s : %d : %s()] ", file, line, func);
