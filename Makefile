@@ -36,9 +36,9 @@ install: all
 	mkdir -p $(DESTDIR)$(MAN5DIR)
 	mkdir -p $(DESTDIR)$(MAN7DIR)
 
-	cp man/parados.1 $(DESTDIR)$(MAN1)/parados.1
-	cp man/parados.conf.5 $(DESTDIR)$(MAN5)/parados.conf.5
-	cp man/parados.7 $(DESTDIR)$(MAN7)/parados.7
+	cp docs/parados.1 $(DESTDIR)$(MAN1DIR)/parados.1
+	cp docs/parados.conf.5 $(DESTDIR)$(MAN5DIR)/parados.conf.5
+	cp docs/parados.7 $(DESTDIR)$(MAN7DIR)/parados.7
 
 	chmod 644 $(DESTDIR)$(MAN1DIR)/parados.1
 	chmod 644 $(DESTDIR)$(MAN5DIR)/parados.conf.5
@@ -51,9 +51,9 @@ install-conf:
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(OUT)
-	rm -f $(DESTDIR)$(MAN1)/parados.1
-	rm -f $(DESTDIR)$(MAN5)/parados.conf.5
-	rm -f $(DESTDIR)$(MAN7)/parados.7
+	rm -f $(DESTDIR)$(MAN1DIR)/parados.1
+	rm -f $(DESTDIR)$(MAN5DIR)/parados.conf.5
+	rm -f $(DESTDIR)$(MAN7DIR)/parados.7
 
 compile_flags:
 	rm -f compile_flags.txt
