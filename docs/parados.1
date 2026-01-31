@@ -9,18 +9,18 @@
 .Op Fl v
 .Sh DESCRIPTION
 .Nm
-is a minimal HTTP media server for serving local audio and video files
-over a network.
-It exposes a HTTP interface intended for use by external
-clients such as media players or web frontends.
+is a minimal HTTP media server for serving local audio and
+video files over a network.  It exposes a HTTP interface
+intended for use by external clients such as media players
+or web frontends.
 .Pp
-The server scans a directory tree at startup and exposes the contents
-through a simple HTTP API.
-Each file is assigned an identifier derived from its relative path.
+The server scans a directory tree at startup and exposes the
+contents through a simple HTTP API.  Each file is assigned
+an identifier derived from its relative path.
 .Pp
 .Nm
-does not provide a user interface;
-all interaction is expected to happen through clients.
+does not provide a user interface; all interaction is
+expected to happen through clients.
 .Sh OPTIONS
 .Bl -tag -width Ds
 .It Fl v
@@ -41,15 +41,17 @@ or, if not present,
 .It
 Parse user and access rules.
 .It
-Scan the configured media directory and build the media library.
+Scan the configured media directory and build the media
+library.
 .It
 Bind to the configured address and port.
 .It
 Accept and handle HTTP requests.
 .El
 .Pp
-Each incoming connection is handled independently in its own thread.
-The maximum number of concurrent clients is limited by the
+Each incoming connection is handled independently in its own
+thread.  The maximum number of concurrent clients is limited
+by the
 .Ic max_clients
 configuration option.
 .Pp
@@ -69,18 +71,18 @@ The HTTP interface is documented in
 Authentication is optional and configured through
 .Xr parados.conf 5 .
 .Pp
-If no users are defined, all requests are served without authentication.
-If one or more users are defined, HTTP Basic authentication is required
-for all endpoints except
+If no users are defined, all requests are served without
+authentication.  If one or more users are defined, HTTP
+Basic authentication is required for all endpoints except
 .Pa /ping .
 .Pp
-Access to media files is restricted per user based on configured
-allow-lists.
+Access to media files is restricted per user based on
+configured allow-lists.
 .Sh LIBRARY MANAGEMENT
 The media library is scanned at startup.
 .Pp
-If authentication is enabled, the library may be rescanned at runtime
-by issuing a request to the
+If authentication is enabled, the library may be rescanned
+at runtime by issuing a request to the
 .Pa /rescan
 endpoint.
 .Sh EXIT STATUS

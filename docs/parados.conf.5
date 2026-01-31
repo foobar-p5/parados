@@ -10,8 +10,8 @@ The
 file configures
 .Xr parados 1 .
 .Pp
-The file format is line-oriented.
-Each non-empty, non-comment line is a key/value pair int he form:
+The file format is line-oriented. Each non-empty,
+non-comment line is a key/value pair int he form:
 .Bd -literal -offset indent
 key=value
 .Ed
@@ -26,13 +26,14 @@ Unknown keys are ignored but logged.
 .It Pa /etc/parados.conf
 System-wide configuration file.
 .It Pa ./parados.conf
-Fallback configuration file in the current working directory.
+Fallback configuration file in the current working
+directory.
 .El
 .Sh PARAMETERS
 .Bl -tag -width Ds
 .It Ic media_dir
-Directory containing all media files.
-The library is built by recursively scanning this directory at startup.
+Directory containing all media files. The library is built
+by recursively scanning this directory at startup.
 .Pp
 Example:
 .Bd -literal -offset indent
@@ -42,9 +43,9 @@ media_dir=/path/to/media
 Address to bind the HTTP server to.
 Use
 .Cm 127.0.0.1
-to listen on the local host only.
-This is recommended if a web interface is being hosted on the same machine;
-exposing the server to the network may unnecessarily increase risk.
+to listen on the local host only. This is recommended if a
+web interface is being hosted on the same machine; exposing
+the server to the network may unnecessarily increase risk.
 Use
 .Cm 0.0.0.0
 to listen on all IPv4 interfaces.
@@ -77,30 +78,32 @@ Example:
 verbose_log=true
 .Ed
 .It Ic cors_origin
-Configure Cross-Origin Resource Sharing (CORS) for web clients.
+Configure Cross-Origin Resource Sharing (CORS) for web
+clients.
 .Pp
 If empty, no CORS headers are sent.
 If set to
 .Cm * ,
 all origins are allowed.
 Otherwise, the value is interpreted as a
-comma-separated list of allowed origins (clients that can interact
-over the web).
+comma-separated list of allowed origins (clients that can
+interact over the web).
 .Pp
 Example:
 .Bd -literal -offset indent
 cors_origin=http://127.0.0.1:8000
 .Ed
 .It Ic http_io_timeout
-Maximum number of seconds the server will block on a single socket
-read/write operation.
+Maximum number of seconds the server will block on a single
+socket read/write operation.
 .Pp
-This limits how long a client may stall for while sending a request or
-receiving a response.
-If the timeout is exceeded, the connection is closed.
+This limits how long a client may stall for while sending a
+request or receiving a response. If the timeout is exceeded,
+the connection is closed.
 .Pp
-This option is used to protect against stalled or misbehaving clients.
-It does not limit the total duration of a request or stream.
+This option is used to protect against stalled or
+misbehaving clients. It does not limit the total duration of
+a request or stream.
 .Pp
 Valid values are integers in the range 1 to 300.
 .Pp
@@ -122,7 +125,8 @@ max_clients=64
 .Ed
 .El
 .Sh AUTHENTICATION
-Authentication entries are specified using repeated groups of the keys
+Authentication entries are specified using repeated groups
+of the keys
 .Ic user ,
 .Ic pass ,
 and
@@ -132,14 +136,13 @@ If no
 .Ic user
 entries are present, authentication is disabled and all files are
 accessible.
-If one or more users are present, HTTP Basic authentication is required
-for all requests except
+If one or more users are present, HTTP Basic authentication
+is required for all requests except
 .Pa /ping .
 .Pp
 Each
 .Ic user
-starts a new authentication entry.
-The following
+starts a new authentication entry. The following
 .Ic pass
 and
 .Ic allow
@@ -155,24 +158,25 @@ Example:
 user=glenda
 .Ed
 .It Ic pass
-Set the password for the most recently declared user.
-If empty, the account is passwordless and accepts only an empty password.
+Set the password for the most recently declared user. If
+empty, the account is passwordless and accepts only an empty
+password.
 .Pp
 Example:
 .Bd -literal -offset indent
 pass=secret
 .Ed
 .It Ic allow
-Add an allowed path prefix for the most recently declared user.
-Multiple
+Add an allowed path prefix for the most recently declared
+user. Multiple
 .Ic allow
 directives may be used.
 .Pp
 A value of
 .Cm *
-allows all paths.
-Otherwise, the value must match the beginning of a file's relative path.
-Directory boundaries are respected.
+allows all paths. Otherwise, the value must match the
+beginning of a file's relative path. Directory boundaries
+are respected.
 .Pp
 Example:
 .Bd -literal -offset indent

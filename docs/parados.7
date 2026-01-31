@@ -12,12 +12,12 @@ protocol describes the HTTP interface provided by
 It is intended for simple clients and scripts.
 .Pp
 The protocol uses HTTP/1.1.
-Each request is handled on a separate connection, which is closed after
-the response.
-Persistent connections are not supported.
+Each request is handled on a separate connection, which is
+closed after the response. Persistent connections are not
+supported.
 .Pp
-Media items are identified by 64-bit identifiers encoded as 16 hexadecimal
-digits.
+Media items are identified by 64-bit identifiers encoded as
+16 hexadecimal digits.
 .Sh REQUESTS
 All endpoints accept
 .Cm GET
@@ -29,7 +29,8 @@ The server also accepts
 for CORS preflight.
 .Sh AUTHENTICATION
 If one or more users are configured,
-HTTP Basic authentication is required for all endpoints except
+HTTP Basic authentication is required for all endpoints
+except
 .Pa /ping .
 .Pp
 Credentials are provided using the
@@ -52,8 +53,9 @@ Response format:
 .Ed
 .It Pa /meta/{id}
 Return metadata for a single item as JSON.
-The response includes the item identifier, path, basename, size in bytes,
-modification time (epoch seconds), MIME type, and kind.
+The response includes the item identifier, path, basename,
+size in bytes, modification time (epoch seconds), MIME type,
+and kind.
 .Pp
 Response format:
 .Bd -literal -offset indent
@@ -72,7 +74,8 @@ Invalid ranges return HTTP 400 or HTTP 416.
 Rescan the media directory and rebuild the library.
 If authentication is disabled, the endpoint returns HTTP 403.
 .Pp
-During a rescan, requests that access the library may get block until the rescan completes.
+During a rescan, requests that access the library may get
+block until the rescan completes.
 .El
 .Sh RESPONSES
 The server sets
@@ -85,8 +88,8 @@ Responses include
 .Cm Content-Length
 and close the connection after each request.
 .Pp
-If a user is authenticated, items outside the configured allow-list are
-treated as not found.
+If a user is authenticated, items outside the configured
+allow-list are treated as not found.
 .Sh STATUS CODES
 .Bl -tag -width Ds
 .It Cm 200
@@ -116,9 +119,9 @@ JSON responses include a
 field indicating the protocol version.
 Clients should reject unknown versions.
 .Sh NOTES
-The protocol does not provide sessions, persistent connections,
-transcoding, or server-side state.
-All higher-level behavior is handled by the client.
+The protocol does not provide sessions, persistent
+connections, transcoding, or server-side state. All
+higher-level behavior is handled by the client.
 .Sh SEE ALSO
 .Xr parados 1 ,
 .Xr parados.conf 5
