@@ -90,11 +90,15 @@ static int set_kv(const char* k, const char* v)
 	if (strcmp(k, "server_port") == 0) {
 		char* end = NULL;
 		long p = strtol(v, &end, 10);
-		if (!end || *end != '\0')
-			return -1;
 
-		if (p < 1 || p > 65535)
+		if (end == v || *end != '\0') {
+			LOG(true, "CONF", "Config Error       %s invalid integer '%s'", k, v);
 			return -1;
+		}
+		if (p < 1 || p > 65535) {
+			LOG(true, "CONF", "Config Error       server_port out of bounds (1..65535)");
+			return -1;
+		}
 
 		server_port = (int)p;
 		return 0;
@@ -102,8 +106,10 @@ static int set_kv(const char* k, const char* v)
 
 	if (strcmp(k, "verbose_log") == 0) {
 		bool b;
-		if (parse_bool(v, &b) < 0)
+		if (parse_bool(v, &b) < 0){
+			LOG(true, "CONF", "Config Error       verbose_log invalid bool \"%s\"", v);
 			return -1;
+		}
 
 		verbose_log = b;
 		return 0;
@@ -117,11 +123,15 @@ static int set_kv(const char* k, const char* v)
 	if (strcmp(k, "http_io_timeout") == 0) {
 		char* end = NULL;
 		long t = strtol(v, &end, 10);
-		if (!end || *end != '\0')
-			return -1;
 
-		if (t < 1 || t > 300)
+		if (end == v || *end != '\0') {
+			LOG(true, "CONF", "Config Error       %s invalid integer '%s'", k, v);
 			return -1;
+		}
+		if (t < 1 || t > 300) {
+			LOG(true, "CONF", "Config Error       http_io_timeout too %s (1..300)", t > 300 ? "high" : "low");
+			return -1;
+		}
 
 		http_io_timeout = (int)t;
 		return 0;
@@ -130,11 +140,15 @@ static int set_kv(const char* k, const char* v)
 	if (strcmp(k, "max_clients") == 0) {
 		char* end = NULL;
 		long n = strtol(v, &end, 10);
-		if (!end || *end != '\0')
-			return -1;
 
-		if (n < 1 || n > 1024)
+		if (end == v || *end != '\0') {
+			LOG(true, "CONF", "Config Error       %s invalid integer '%s'", k, v);
 			return -1;
+		}
+		if (n < 1 || n > 1024) {
+			LOG(true, "CONF", "Config Error       max_clients too %s (1..1024)", n > 1024 ? "high" : "low");
+			return -1;
+		}
 
 		max_clients = (int)n;
 		return 0;
@@ -142,18 +156,28 @@ static int set_kv(const char* k, const char* v)
 
 	/* auth */
 	if (strcmp(k, "user") == 0) {
-		return users_push(v);
+		int r = users_push(v);
+		if (r < 0)
+			LOG(true, "CONF", "Config Error       user invalid '%s'", v);
+		return r;
 	}
 
 	if (strcmp(k, "pass") == 0) {
-		return users_set_pass(v);
+		int r = users_set_pass(v);
+		if (r < 0)
+			LOG(true, "CONF", "Config Error       pass invalid '%s'", v);
+		return r;
 	}
 
 	if (strcmp(k, "allow") == 0) {
-		return users_add_allow(v);
+		int r = users_add_allow(v);
+		if (r < 0)
+			LOG(true, "CONF", "Config Error       allow invalid '%s'", v);
+		return r;
 	}
 
 	/* unknown key */
+	LOG(true, "CONF", "Unknown Key Value  %s=%s", k, v);
 	return 0;
 }
 
@@ -193,7 +217,7 @@ void config_load(void)
 		goto log;
 	}
 
-	LOG(true, "CONF", "Unable to load configuration... using defaults", e);
+	LOG(true, "CONF", "Unable to load configuration... using defaults");
 	return;
 
 log:
