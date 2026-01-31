@@ -1,4 +1,4 @@
-.Dd January 28, 2026
+.Dd January 31, 2026
 .Dt PARADOS 7
 .Os
 .Sh NAME
@@ -51,9 +51,15 @@ Response format:
 { "proto": 1, "items": [ { "id": "...", "path": "..." } ] }
 .Ed
 .It Pa /meta/{id}
-Return metadata for a single item.
-The response includes the item identifier, path, size in bytes, and MIME
-type.
+Return metadata for a single item as JSON.
+The response includes the item identifier, path, basename, size in bytes,
+modification time (epoch seconds), MIME type, and kind.
+.Pp
+Response format:
+.Bd -literal -offset indent
+{ "proto": 1, "id": "...", "path": "...", "name": "...",
+  "size": N, "mtime": N, "type": "...", "kind": "..." }
+.Ed
 .It Pa /stream/{id}
 Stream the contents of a media item.
 Supports byte range requests using the
@@ -62,12 +68,11 @@ header.
 .Pp
 Valid ranges return HTTP 206.
 Invalid ranges return HTTP 400 or HTTP 416.
-.It Pa /queue
-Return an M3U playlist containing stream URLs for all permitted items.
+.It Pa /rescan
+Rescan the media directory and rebuild the library.
+If authentication is disabled, the endpoint returns HTTP 403.
 .Pp
-If the request includes a
-.Cm Host
-header, it is used to construct playlist URLs.
+During a rescan, requests that access the library may get block until the rescan completes.
 .El
 .Sh RESPONSES
 The server sets
@@ -76,9 +81,12 @@ based on file extension.
 Unknown types default to
 .Cm application/octet-stream .
 .Pp
-Most responses include
-.Cm Content-Length .
-Streaming responses may omit it.
+Responses include
+.Cm Content-Length
+and close the connection after each request.
+.Pp
+If a user is authenticated, items outside the configured allow-list are
+treated as not found.
 .Sh STATUS CODES
 .Bl -tag -width Ds
 .It Cm 200
@@ -91,6 +99,8 @@ Partial content.
 Bad request.
 .It Cm 401
 Authentication required or failed.
+.It Cm 403
+Forbidden.
 .It Cm 404
 Resource not found or not permitted.
 .It Cm 405

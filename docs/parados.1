@@ -1,4 +1,4 @@
-.Dd January 28, 2026
+.Dd January 31, 2026
 .Dt PARADOS 1
 .Os
 .Sh NAME
@@ -33,6 +33,8 @@ performs the following steps:
 .Bl -enum -compact
 .It
 Load configuration from
+.Ev PARADOS_CONFIG
+if set, otherwise
 .Pa /etc/parados.conf
 or, if not present,
 .Pa ./parados.conf .
@@ -46,7 +48,11 @@ Bind to the configured address and port.
 Accept and handle HTTP requests.
 .El
 .Pp
-Each incoming connection is handled independently.
+Each incoming connection is handled independently in its own thread.
+The maximum number of concurrent clients is limited by the
+.Ic max_clients
+configuration option.
+.Pp
 Connections are closed after each request.
 .Sh LOGGING
 .Nm
@@ -70,6 +76,13 @@ for all endpoints except
 .Pp
 Access to media files is restricted per user based on configured
 allow-lists.
+.Sh LIBRARY MANAGEMENT
+The media library is scanned at startup.
+.Pp
+If authentication is enabled, the library may be rescanned at runtime
+by issuing a request to the
+.Pa /rescan
+endpoint.
 .Sh EXIT STATUS
 .Ex -std
 .Sh SEE ALSO

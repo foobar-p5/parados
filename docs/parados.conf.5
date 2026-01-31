@@ -1,4 +1,4 @@
-.Dd January 28, 2026
+.Dd January 31, 2026
 .Dt PARADOS.CONF 5
 .Os
 .Sh NAME
@@ -16,11 +16,11 @@ Each non-empty, non-comment line is a key/value pair int he form:
 key=value
 .Ed
 .Pp
-Whitespace around keys and values are ignored.
+Whitespace around keys and values ignored.
 Lines beginning with
 .Sq #
 are comments and are ignored.
-Invalid keys are ignored.
+Unknown keys are ignored but logged.
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa /etc/parados.conf
@@ -43,9 +43,8 @@ Address to bind the HTTP server to.
 Use
 .Cm 127.0.0.1
 to listen on the local host only.
-This is also recommended if you are soley using a WebUI interface
-hosted from the same device as exposing the server to the whole
-network may uncessesarily open your server to danger.
+This is recommended if a web interface is being hosted on the same machine;
+exposing the server to the network may unnecessarily increase risk.
 Use
 .Cm 0.0.0.0
 to listen on all IPv4 interfaces.
@@ -80,10 +79,11 @@ verbose_log=true
 .It Ic cors_origin
 Configure Cross-Origin Resource Sharing (CORS) for web clients.
 .Pp
-If empty, CORS header is sent.
+If empty, no CORS headers are sent.
 If set to
 .Cm * ,
-all origins are allowed, otherwise, the value is interpreted as a
+all origins are allowed.
+Otherwise, the value is interpreted as a
 comma-separated list of allowed origins (clients that can interact
 over the web).
 .Pp
@@ -91,17 +91,16 @@ Example:
 .Bd -literal -offset indent
 cors_origin=http://127.0.0.1:8000
 .Ed
-
 .It Ic http_io_timeout
 Maximum number of seconds the server will block on a single socket
 read/write operation.
 .Pp
 This limits how long a client may stall for while sending a request or
-while receiving a response.
+receiving a response.
 If the timeout is exceeded, the connection is closed.
 .Pp
-This option used for protecting against stalled or bad-acting clients.
-This does not limit the duration of a request or stream, only I/O operations.
+This option is used to protect against stalled or misbehaving clients.
+It does not limit the total duration of a request or stream.
 .Pp
 Valid values are integers in the range 1 to 300.
 .Pp
@@ -109,7 +108,18 @@ Example:
 .Bd -literal -offset indent
 http_io_timeout=5
 .Ed
-
+.It Ic max_clients
+Maximum number of concurrent client connections.
+If the limit is reached, new connections receive a
+.Dv 503
+response.
+.Pp
+Valid values are integers in the range 1 to 1024.
+.Pp
+Example:
+.Bd -literal -offset indent
+max_clients=64
+.Ed
 .El
 .Sh AUTHENTICATION
 Authentication entries are specified using repeated groups of the keys
@@ -123,12 +133,12 @@ If no
 entries are present, authentication is disabled and all files are
 accessible.
 If one or more users are present, HTTP Basic authentication is required
-for all requests (except
-.Pa /ping ).
+for all requests except
+.Pa /ping .
 .Pp
 Each
 .Ic user
-starts a new entry.
+starts a new authentication entry.
 The following
 .Ic pass
 and
@@ -162,7 +172,7 @@ A value of
 .Cm *
 allows all paths.
 Otherwise, the value must match the beginning of a file's relative path.
-The match allows directory boundaries.
+Directory boundaries are respected.
 .Pp
 Example:
 .Bd -literal -offset indent
@@ -192,14 +202,15 @@ pass=
 allow=TV/NBA/
 .Ed
 .Pp
-Single passwordless admin user with full access:
+Single passwordless administrative user with full access:
 .Bd -literal -offset indent
 user=admin
 pass=
 allow=*
 .Ed
 .Sh SEE ALSO
-.Xr parados 1
+.Xr parados 1 ,
+.Xr parados 7
 .Sh AUTHORS
 .An Abhinav Prasai
 
