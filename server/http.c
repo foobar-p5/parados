@@ -812,7 +812,7 @@ int http_handle(int c)
 		const char* type = mime_from_path(rel);
 
 		struct json j;
-		if (json_meta(&j, &tmp, (size_t)st.st_size, type) < 0) {
+		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
 			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
 		}

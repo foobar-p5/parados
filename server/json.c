@@ -7,12 +7,23 @@
 #include "json.h"
 #include "log.h"
 
+static const char* json_basename(const char* path);
 static int json_grow(struct json* j, size_t need);
 static int json_hex64(struct json* j, uint64_t v);
+static const char* json_kind_from_type(const char* type);
 static int json_putc(struct json* j, const char c);
 static int json_putn(struct json* j, const char* s, size_t n);
 static int json_puts(struct json* j, const char* s);
 static int json_string(struct json* j, const char* s);
+
+static const char* json_basename(const char* path)
+{
+	if (!path)
+		return "";
+
+	const char* p = strrchr(path, '/');
+	return p ? (p + 1) : path;
+}
 
 static int json_grow(struct json* j, size_t need)
 {
@@ -47,6 +58,21 @@ static int json_hex64(struct json* j, uint64_t v)
 	hex[16] = '\0';
 
 	return json_string(j, hex);
+}
+
+static const char* json_kind_from_type(const char* type)
+{
+	if (!type || type[0] == '\0')
+		return "other";
+
+	if (strncmp(type, "audio/", 6) == 0)
+		return "audio";
+	if (strncmp(type, "video/", 6) == 0)
+		return "video";
+	if (strncmp(type, "image/", 6) == 0)
+		return "image";
+
+	return "other";
 }
 
 static int json_putc(struct json* j, char c)
@@ -183,7 +209,7 @@ fail:
 	return -1;
 }
 
-int json_meta(struct json* j, const struct item* it, size_t size, const char* type)
+int json_meta(struct json* j, const struct item* it, size_t size, long mtime, const char* type)
 {
 	memset(j, 0, sizeof(*j));
 
@@ -197,6 +223,12 @@ int json_meta(struct json* j, const struct item* it, size_t size, const char* ty
 	if (json_string(j, it->path) < 0)
 		goto fail;
 
+	/* basename */
+	if (json_puts(j, ",\"name\":") < 0)
+		goto fail;
+	if (json_string(j, json_basename(it->path)) < 0)
+		goto fail;
+
 	if (json_puts(j, ",\"size\":") < 0)
 		goto fail;
 
@@ -206,9 +238,23 @@ int json_meta(struct json* j, const struct item* it, size_t size, const char* ty
 	if (json_puts(j, tmp) < 0)
 		goto fail;
 
+
+	/* mtime (epoch seconds) */
+	if (json_puts(j, ",\"mtime\":") < 0)
+		goto fail;
+	snprintf(tmp, sizeof(tmp), "%ld", mtime);
+	if (json_puts(j, tmp) < 0)
+		goto fail;
+
+	/* formats */
 	if (json_puts(j, ",\"type\":") < 0)
 		goto fail;
 	if (json_string(j, type) < 0)
+		goto fail;
+
+	if (json_puts(j, ",\"kind\":") < 0)
+		goto fail;
+	if (json_string(j, json_kind_from_type(type)) < 0)
 		goto fail;
 
 	if (json_putc(j, '}') < 0)
