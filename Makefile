@@ -1,21 +1,63 @@
+# C Stuff
 CC ?= cc
 VER = 1.26
 GIT_VER != git describe --always --tags 2>/dev/null || echo unknown
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L -DGIT_VER=\"$(GIT_VER)\" -DVERSION=\"$(VER)\"
 CFLAGS = -std=c99 -Wall -Wextra -Iserver/include -pthread
+SRC = server/*.c
 OUT = parados
+
+# Install Paths
+ETCDIR  ?= /etc
+PREFIX  ?= /usr/local
+BINDIR  ?= $(PREFIX)/bin
+MANDIR  ?= $(PREFIX)/man
+MAN1DIR ?= $(MANDIR)/man1
+MAN5DIR ?= $(MANDIR)/man5
+MAN7DIR ?= $(MANDIR)/man7
 
 all: release
 
 release:
-	$(CC) $(CPPFLAGS) -DNDEBUG $(CFLAGS) -O2 server/*.c -o $(OUT)
+	$(CC) $(CPPFLAGS) -DNDEBUG $(CFLAGS) -O2 $(SRC) -o $(OUT)
 
 debug:
-	$(CC) $(CPPFLAGS) -DDEBUG $(CFLAGS) -g server/*.c -o $(OUT)
+	$(CC) $(CPPFLAGS) -DDEBUG $(CFLAGS) -g $(SRC) -o $(OUT)
 
 clean:
 	rm -f $(OUT)
 
+install: all
+	mkdir -p $(DESTDIR)$(BINDIR)
+	cp $(OUT) $(DESTDIR)$(BINDIR)/$(OUT)
+	chmod 755 $(DESTDIR)$(BINDIR)/$(OUT)
+
+	mkdir -p $(DESTDIR)$(MAN1DIR)
+	mkdir -p $(DESTDIR)$(MAN5DIR)
+	mkdir -p $(DESTDIR)$(MAN7DIR)
+
+	cp man/parados.1 $(DESTDIR)$(MAN1)/parados.1
+	cp man/parados.conf.5 $(DESTDIR)$(MAN5)/parados.conf.5
+	cp man/parados.7 $(DESTDIR)$(MAN7)/parados.7
+
+	chmod 644 $(DESTDIR)$(MAN1DIR)/parados.1
+	chmod 644 $(DESTDIR)$(MAN5DIR)/parados.conf.5
+	chmod 644 $(DESTDIR)$(MAN7DIR)/parados.7
+
+install-conf:
+	mkdir -p $(DESTDIR)$(ETCDIR)
+	cp parados.conf $(DESTDIR)$(ETCDIR)/parados.conf
+	chmod 644 $(DESTDIR)$(ETCDIR)/parados.conf
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(OUT)
+	rm -f $(DESTDIR)$(MAN1)/parados.1
+	rm -f $(DESTDIR)$(MAN5)/parados.conf.5
+	rm -f $(DESTDIR)$(MAN7)/parados.7
+
 compile_flags:
 	rm -f compile_flags.txt
 	for f in ${CPPFLAGS} ${CFLAGS}; do echo $$f >> compile_flags.txt; done
+
+.PHONY: all release debug clean install install-conf uninstall compile_flags
+
