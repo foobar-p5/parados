@@ -51,7 +51,8 @@ static int load_path(const char* path)
 		if (k[0] == '\0')
 			continue;
 
-		(void)set_kv(k, v);
+		if (set_kv(k, v) < 0)
+			LOG(true, "CONF", "Config Error       %s=%s", k, v);
 	}
 
 	free(line);

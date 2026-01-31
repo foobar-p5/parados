@@ -299,7 +299,7 @@ int users_set_pass(const char* pass)
 
 	LOG(
 		verbose_log, "AUTH", "Password set for   %s (%s)",
-		users.v[users.len - 1].name, (pass[0] == '\0') ? "none" : ""
+		users.v[users.len - 1].name, (pass[0] == '\0') ? "none" : "set"
 	);
 	return 0;
 }
