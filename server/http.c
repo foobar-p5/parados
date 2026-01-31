@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -9,6 +10,7 @@
 #include <strings.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -21,6 +23,7 @@
 
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
 static const struct item* find_item(uint64_t id);
+static int item_path_for_id(char out[4096], uint64_t id, const struct user* u);
 static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
@@ -34,6 +37,7 @@ static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
 extern struct library lib;
+extern pthread_rwlock_t lib_lock;
 
 static int cors_origin_allowed(const char* origin)
 {
@@ -127,6 +131,40 @@ static const struct item* find_item(uint64_t id)
 			return &lib.items[i];
 
 	return NULL;
+}
+
+static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
+{
+	int ret = -1;
+
+	if (!out)
+		return -1;
+
+	out[0] = '\0';
+
+	pthread_rwlock_rdlock(&lib_lock);
+
+	const struct item* it = find_item(id);
+	if (!it) {
+		ret = 1; /* not found */
+		goto out;
+	}
+
+	if (u && !user_allows_path(u, it->path)) {
+		ret = 1; /* not found */
+		goto out;
+	}
+
+	if (snprintf(out, 4096, "%s", it->path) >= 4096) {
+		ret = -1;
+		goto out;
+	}
+
+	ret = 0;
+
+out:
+	pthread_rwlock_unlock(&lib_lock);
+	return ret; /* 0 ok, 1 not found, -1 error */
 }
 
 static const char* mime_from_path(const char* path)
@@ -615,6 +653,9 @@ int http_handle(int c)
 
 	if (strcmp(path, "/library") == 0) {
 		LOG(verbose_log, "HTTP", "Route              /library");
+
+		pthread_rwlock_rdlock(&lib_lock);
+
 		struct json j;
 		struct library view;
 		memset(&view, 0, sizeof(view));
@@ -626,6 +667,7 @@ int http_handle(int c)
 			if (lib.len > 0) {
 				view.items = calloc(lib.len, sizeof(*view.items));
 				if (!view.items) {
+					pthread_rwlock_unlock(&lib_lock);
 					reply_text(c, hdr, HTTP_500, "server error\n");
 					return -1;
 				}
@@ -643,10 +685,15 @@ int http_handle(int c)
 			if (u)
 				free(view.items);
 
+			pthread_rwlock_unlock(&lib_lock);
+
 			LOG(verbose_log, "JSON", "Encode     FAILED");
 			reply_text(c, hdr, HTTP_500, "json encode failed\n");
 			return -1;
 		}
+
+		pthread_rwlock_unlock(&lib_lock);
+
 		LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
 
 		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
@@ -655,6 +702,52 @@ int http_handle(int c)
 		if (u)
 			free(view.items);
 
+		return 0;
+	}
+
+	if (strcmp(path, "/rescan") == 0) {
+		LOG(verbose_log, "HTTP", "Route              /rescan");
+
+		if (users.len == 0) {
+			LOG(true, "HTTP", "Rescan forbidden   Auth disabled");
+			reply_text(c, hdr, HTTP_403, "Forbidden\n");
+			return 0;
+		}
+
+		LOG(true, "SCAN", "Rescan requested   %s", u->name);
+
+		struct timespec t0;
+		struct timespec t1;
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+
+		size_t before = 0;
+		size_t after  = 0;
+
+		pthread_rwlock_wrlock(&lib_lock);
+
+		before = lib.len;
+		LOG(verbose_log, "SCAN", "Rescan begin       %s (%zu items)", media_dir, before);
+
+		int ok = scan_library_rescan(&lib, media_dir);
+
+		after = lib.len;
+
+		pthread_rwlock_unlock(&lib_lock);
+
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+
+		long ms = (t1.tv_sec - t0.tv_sec) * 1000L +
+			(t1.tv_nsec - t0.tv_nsec) / 1000000L;
+
+		if (ok < 0) {
+			LOG(true, "SCAN", "Rescan FAILED      %s (%ld ms)", media_dir, ms);
+			reply_text(c, hdr, HTTP_500, "rescan failed\n");
+			return -1;
+		}
+
+		LOG(true, "SCAN", "Rescan OK          %zu -> %zu (%ld ms)", before, after, ms);
+
+		reply_text(c, hdr, HTTP_200, "ok\n");
 		return 0;
 	}
 
@@ -667,17 +760,22 @@ int http_handle(int c)
 			return 0;
 		}
 
-		const struct item* it = find_item(id);
-		if (!it) {
+		char rel[4096];
+		int fr = item_path_for_id(rel, id, u);
+		if (fr == 1) {
 			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
-		if (u && !user_allows_path(u, it->path)) {
-			reply_text(c, hdr, HTTP_404, "not found\n");
-			return 0;
+		if (fr < 0) {
+			reply_text(c, hdr, HTTP_500, "server error\n");
+			return -1;
 		}
 
-		return stream_file(c, it, hdr, head_only);
+		struct item tmp;
+		tmp.id = id;
+		tmp.path = rel;
+
+		return stream_file(c, &tmp, hdr, head_only);
 	}
 
 	if (strncmp(path, "/meta/", 6) == 0) {
@@ -689,26 +787,32 @@ int http_handle(int c)
 			return 0;
 		}
 
-		const struct item* it = find_item(id);
-		if (!it) {
+		char rel[4096];
+		int fr = item_path_for_id(rel, id, u);
+		if (fr == 1) {
 			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
-		if (u && !user_allows_path(u, it->path)) {
-			reply_text(c, hdr, HTTP_404, "not found\n");
-			return 0;
+
+		if (fr < 0) {
+			reply_text(c, hdr, HTTP_500, "server error\n");
+			return -1;
 		}
+
+		struct item tmp;
+		tmp.id = id;
+		tmp.path = rel;
 
 		struct stat st;
-		if (stat_item(it, &st) < 0) {
+		if (stat_item(&tmp, &st) < 0) {
 			reply_text(c, hdr, HTTP_404, "not found\n");
 			return 0;
 		}
 
-		const char* type = mime_from_path(it->path);
+		const char* type = mime_from_path(rel);
 
 		struct json j;
-		if (json_meta(&j, it, (size_t)st.st_size, type) < 0) {
+		if (json_meta(&j, &tmp, (size_t)st.st_size, type) < 0) {
 			reply_text(c, hdr, HTTP_500, "json failed\n");
 			return -1;
 		}

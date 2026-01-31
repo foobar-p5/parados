@@ -50,6 +50,7 @@ void setup(void);
 static sem_t slots;
 static int sock;
 struct library lib;
+pthread_rwlock_t lib_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 static void apply_rlimits(void)
 {

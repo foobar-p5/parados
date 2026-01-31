@@ -17,6 +17,7 @@ struct library {
 
 void scan_library_free(struct library* l);
 int scan_library(struct library* l, const char* root);
+int scan_library_rescan(struct library* l, const char* root);
 
 #endif /* SCAN_H */
 

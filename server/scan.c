@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -140,5 +141,30 @@ void scan_library_free(struct library* l)
 	l->items = NULL;
 	l->len = 0;
 	l->cap = 0;
+}
+
+int scan_library_rescan(struct library* l, const char* root)
+{
+	struct library new;
+	struct library old;
+
+	if (!l || !root)
+		return -1;
+
+	memset(&new, 0, sizeof(new));
+
+	if (scan_library(&new, root) < 0) {
+		scan_library_free(&new);
+		return -1;
+	}
+
+	/* swap */
+	old = *l;
+	*l = new;
+
+	/* free old */
+	scan_library_free(&old);
+
+	return 0;
 }
 
