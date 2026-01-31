@@ -10,10 +10,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,6 +39,7 @@
 #endif /* GIT_VER */
 
 static void apply_rlimits(void);
+static void* client_thread(void* arg);
 static void fd_set_cloexec(int fd);
 static void sock_set_timeouts(int fd);
 
@@ -43,7 +47,8 @@ void die(const char* s, int e);
 void run(void);
 void setup(void);
 
-int sock;
+static sem_t slots;
+static int sock;
 struct library lib;
 
 static void apply_rlimits(void)
@@ -57,6 +62,19 @@ static void apply_rlimits(void)
 	rl.rlim_cur = 1024;
 	rl.rlim_max = 1024;
 	(void)setrlimit(RLIMIT_NOFILE, &rl);
+}
+
+static void* client_thread(void* arg)
+{
+	int c = (int)(intptr_t)arg;
+
+	sock_set_timeouts(c);
+	(void)http_handle(c);
+	shutdown(c, SHUT_WR);
+	close(c);
+
+	(void)sem_post(&slots);
+	return NULL;
 }
 
 static void fd_set_cloexec(int fd)
@@ -85,45 +103,44 @@ void die(const char* s, int e)
 void run(void)
 {
 	for (;;) {
-		int c = accept(sock, NULL, NULL);
+		int c;
+
+		/* client cap */
+		(void)sem_wait(&slots);
+
+		c = accept(sock, NULL, NULL);
 		if (c < 0) {
+			(void)sem_post(&slots);
 			if (errno == EINTR)
 				continue;
 			continue;
 		}
+
 		fd_set_cloexec(c);
 		LOG(verbose_log, "CORE", "Connection         Accepted");
 
-		pid_t pid = fork();
-		if (pid < 0) {
+		pthread_t t;
+		int err = pthread_create(&t, NULL, client_thread, (void*)(intptr_t)c);
+		if (err != 0) {
+			LOG(true, "CORE", "pthread_create FAILED %d", err);
 			close(c);
+			(void)sem_post(&slots);
 			continue;
 		}
 
-		if (pid == 0) {
-#ifdef __OpenBSD__
-			if (pledge("stdio inet rpath", NULL) < 0)
-				_exit(EXIT_FAILURE);
-#endif
-			sock_set_timeouts(c);
-			(void)http_handle(c);
-			shutdown(c, SHUT_WR);
-			close(c);
-			_exit(EXIT_SUCCESS);
-		}
-
-		close(c);
+		(void)pthread_detach(t);
 	}
 }
 
 void setup(void)
 {
-	signal(SIGPIPE, SIG_IGN); /* ignore SIGPIPE */
-	signal(SIGCHLD, SIG_IGN); /* reap children to prevent
-								 them to turn into zombies */
+	signal(SIGPIPE, SIG_IGN);
 
 	config_load();
 	apply_rlimits();
+
+	if (sem_init(&slots, 0, max_clients) < 0)
+		die("sem_init", EXIT_FAILURE);
 
 	int ret = 1;
 	sock = socket(AF_INET, SOCK_STREAM, 0);
