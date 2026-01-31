@@ -399,7 +399,7 @@ static void reply(int c, const char* hdr, const char* status, const char* ctype,
 
 	if ((size_t)n >= sizeof(resp)) {
 		/* fail if header too large */
-		reply_text(c, hdr, HTTP_500, "server error\n");
+		reply_text(c, hdr, HTTP_500, "Server Error\n");
 		return;
 	}
 
@@ -465,7 +465,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	/* build absolute path */
 	if (join_path(full, sizeof(full), media_dir, it->path) < 0) {
 		LOG(verbose_log, "HTTP", "Stream FAILED      Path too long");
-		reply_text(c, hdr, HTTP_500, "Server error\n");
+		reply_text(c, hdr, HTTP_500, "Server Error\n");
 		return -1;
 	}
 
@@ -473,7 +473,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int fd = open(full, O_RDONLY);
 	if (fd < 0) {
 		LOG(verbose_log, "HTTP", "Open FAILED        %s", it->path);
-		reply_text(c, hdr, HTTP_404, "Not found\n");
+		reply_text(c, hdr, HTTP_404, "Not Found\n");
 		return 0;
 	}
 
@@ -481,14 +481,14 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	struct stat st;
 	if (fstat(fd, &st) < 0) {
 		close(fd);
-		reply_text(c, hdr, HTTP_500, "Server error\n");
+		reply_text(c, hdr, HTTP_500, "Server Error\n");
 		return -1;
 	}
 
 	/* reject non-regular files */
 	if (!S_ISREG(st.st_mode)) {
 		close(fd);
-		reply_text(c, hdr, HTTP_404, "Not found\n");
+		reply_text(c, hdr, HTTP_404, "Not Found\n");
 		return 0;
 	}
 
@@ -500,20 +500,20 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int partial = parse_range(hdr, total, &start, &end);
 	if (partial == RANGE_BAD) {
 		close(fd);
-		reply_text(c, hdr, HTTP_400, "bad range\n");
+		reply_text(c, hdr, HTTP_400, "Bad Range\n");
 		return 0;
 	}
 
 	if (partial == RANGE_UNSAT) {
 		close(fd);
-		reply_text(c, hdr, HTTP_416, "range not satisfiable\n");
+		reply_text(c, hdr, HTTP_416, "Range Not Satisfiable\n");
 		return 0;
 	}
 
 	if (partial == RANGE_OK) {
 		if (lseek(fd, (off_t)start, SEEK_SET) < 0) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "server error\n");
+			reply_text(c, hdr, HTTP_500, "Server Error\n");
 			return -1;
 		}
 	}
@@ -526,7 +526,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 
 	if (snprintf(ctype, sizeof(ctype), HTTP_CTYPE, type) >= (int)sizeof(ctype)) {
 		close(fd);
-		reply_text(c, hdr, HTTP_500, "Server error\n");
+		reply_text(c, hdr, HTTP_500, "Server Error\n");
 		return -1;
 	}
 
@@ -539,7 +539,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 			start, end, total
 		) >= (int)sizeof(extra)) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "Server error\n");
+			reply_text(c, hdr, HTTP_500, "Server Error\n");
 			return -1;
 		}
 
@@ -549,7 +549,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 		/* non-partial */
 		if (snprintf(extra, sizeof(extra), HTTP_RANGE) >= (int)sizeof(extra)) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "Server error\n");
+			reply_text(c, hdr, HTTP_500, "Server Error\n");
 			return -1;
 		}
 
@@ -615,7 +615,7 @@ int http_handle(int c)
 	hdr[0] = '\0';
 
 	if (read_request(c, method, sizeof(method), path, sizeof(path), hdr, sizeof(hdr)) < 0) {
-		reply_text(c, hdr, HTTP_400, "bad request\n");
+		reply_text(c, hdr, HTTP_400, "Bad Request\n");
 		return -1;
 	}
 	LOG(verbose_log, "HTTP", "Request            %s %s", method, path);
@@ -633,13 +633,13 @@ int http_handle(int c)
 	}
 	else {
 		LOG(verbose_log, "HTTP", "Method forbidden   %s", method);
-		reply_text(c, hdr, HTTP_405, "method not allowed\n");
+		reply_text(c, hdr, HTTP_405, "Method Not Allowed\n");
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
 		LOG(verbose_log, "HTTP", "Route              /ping");
-		reply_text(c, hdr, HTTP_200, "ok\n");
+		reply_text(c, hdr, HTTP_200, "OK\n");
 		return 0;
 	}
 
@@ -668,7 +668,7 @@ int http_handle(int c)
 				view.items = calloc(lib.len, sizeof(*view.items));
 				if (!view.items) {
 					pthread_rwlock_unlock(&lib_lock);
-					reply_text(c, hdr, HTTP_500, "server error\n");
+					reply_text(c, hdr, HTTP_500, "Server Error\n");
 					return -1;
 				}
 			}
@@ -688,7 +688,7 @@ int http_handle(int c)
 			pthread_rwlock_unlock(&lib_lock);
 
 			LOG(verbose_log, "JSON", "Encode     FAILED");
-			reply_text(c, hdr, HTTP_500, "json encode failed\n");
+			reply_text(c, hdr, HTTP_500, "JSON Encode Failed\n");
 			return -1;
 		}
 
@@ -741,13 +741,13 @@ int http_handle(int c)
 
 		if (ok < 0) {
 			LOG(true, "SCAN", "Rescan FAILED      %s (%ld ms)", media_dir, ms);
-			reply_text(c, hdr, HTTP_500, "rescan failed\n");
+			reply_text(c, hdr, HTTP_500, "Rescan Failed\n");
 			return -1;
 		}
 
 		LOG(true, "SCAN", "Rescan OK          %zu -> %zu (%ld ms)", before, after, ms);
 
-		reply_text(c, hdr, HTTP_200, "ok\n");
+		reply_text(c, hdr, HTTP_200, "OK\n");
 		return 0;
 	}
 
@@ -756,18 +756,18 @@ int http_handle(int c)
 
 		uint64_t id;
 		if (parse_hex64(path + 8, &id) < 0) {
-			reply_text(c, hdr, HTTP_400, "bad request\n");
+			reply_text(c, hdr, HTTP_400, "Bad Request\n");
 			return 0;
 		}
 
 		char rel[4096];
 		int fr = item_path_for_id(rel, id, u);
 		if (fr == 1) {
-			reply_text(c, hdr, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "Not Found\n");
 			return 0;
 		}
 		if (fr < 0) {
-			reply_text(c, hdr, HTTP_500, "server error\n");
+			reply_text(c, hdr, HTTP_500, "Server Error\n");
 			return -1;
 		}
 
@@ -783,19 +783,19 @@ int http_handle(int c)
 
 		uint64_t id;
 		if (parse_hex64(path + 6, &id) < 0) {
-			reply_text(c, hdr, HTTP_400, "bad request\n");
+			reply_text(c, hdr, HTTP_400, "Bad Request\n");
 			return 0;
 		}
 
 		char rel[4096];
 		int fr = item_path_for_id(rel, id, u);
 		if (fr == 1) {
-			reply_text(c, hdr, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "Not Found\n");
 			return 0;
 		}
 
 		if (fr < 0) {
-			reply_text(c, hdr, HTTP_500, "server error\n");
+			reply_text(c, hdr, HTTP_500, "Server Error\n");
 			return -1;
 		}
 
@@ -805,7 +805,7 @@ int http_handle(int c)
 
 		struct stat st;
 		if (stat_item(&tmp, &st) < 0) {
-			reply_text(c, hdr, HTTP_404, "not found\n");
+			reply_text(c, hdr, HTTP_404, "Not Found\n");
 			return 0;
 		}
 
@@ -813,7 +813,7 @@ int http_handle(int c)
 
 		struct json j;
 		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
-			reply_text(c, hdr, HTTP_500, "json failed\n");
+			reply_text(c, hdr, HTTP_500, "JSON Failed\n");
 			return -1;
 		}
 
@@ -824,7 +824,7 @@ int http_handle(int c)
 	}
 
 	LOG(verbose_log, "HTTP", "Route not found    %s", path);
-	reply_text(c, hdr, HTTP_404, "not found\n");
+	reply_text(c, hdr, HTTP_404, "Not Found\n");
 
 	return 0;
 }
