@@ -33,6 +33,7 @@
 #include "http.h"
 #include "log.h"
 #include "scan.h"
+#include "util.h"
 
 #ifndef GIT_VER
 #define GIT_VER "unknown"
@@ -106,20 +107,34 @@ void run(void)
 	for (;;) {
 		int c;
 
-		/* client cap */
-		(void)sem_wait(&slots);
-
 		c = accept(sock, NULL, NULL);
 		if (c < 0) {
-			(void)sem_post(&slots);
 			if (errno == EINTR)
 				continue;
 			continue;
 		}
 
 		fd_set_cloexec(c);
-		LOG(verbose_log, "CORE", "Connection         Accepted");
 
+		/* client cap. if full 503 and close */
+		if (sem_trywait(&slots) < 0) {
+			/* short 503 + retry after */
+			static const char resp[] =
+				"HTTP/1.1 503 Service Unavailable\r\n"
+				"Content-Type: text/plain\r\n"
+				"Retry-After: 1\r\n"
+				"Content-Length: 5\r\n"
+				"Connection: close\r\n"
+				"\r\n"
+				"busy\n";
+			(void)write_all(c, resp, sizeof(resp) - 1);
+
+			close(c);
+			LOG(true, "CORE", "Connection         Busy (503)");
+			continue;
+		}
+
+		LOG(verbose_log, "CORE", "Connection         Accepted");
 		pthread_t t;
 		int err = pthread_create(&t, NULL, client_thread, (void*)(intptr_t)c);
 		if (err != 0) {
