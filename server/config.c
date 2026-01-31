@@ -201,6 +201,7 @@ log:
 
 	char port[8];
 	char tmo[16];
+	char maxc[16];
 
 	LOG(true, "CONF", "Config File        %s", path);
 	LOG(true, "CONF", "Media Directory    %s", media_dir);
@@ -211,6 +212,8 @@ log:
 	LOG(true, "CONF", "CORS origins       %s", cors_origin);
 	snprintf(tmo, sizeof(tmo), "%d", http_io_timeout);
 	LOG(true, "CONF", "HTTP IO Timeout    %s", tmo);
+	snprintf(maxc, sizeof(maxc), "%d", max_clients);
+	LOG(true, "CONF", "Max Clients        %s", maxc);
 
 	return;
 }
