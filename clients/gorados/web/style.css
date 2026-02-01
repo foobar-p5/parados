@@ -1,0 +1,41 @@
+/* gorados */
+body {
+	color: #eeeeee;
+	background-color: #1e1f21;
+	font-family: serif;
+	margin: 20px;
+}
+
+video {
+	width: 100%;
+	max-width: 400px;
+	background: #000;
+	display: block;
+}
+
+header {
+	padding: 12px 16px;
+	border-bottom: 1px solid #333;
+}
+
+main {
+	padding: 16px;
+	max-width: 1000px;
+}
+
+code {
+	font-family: monospace;
+}
+
+a {
+	color: inherit;
+}
+
+ul {
+	padding-left: 18px;
+}
+
+li {
+	margin: 4px 0;
+}
+
