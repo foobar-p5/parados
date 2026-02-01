@@ -1,3 +1,4 @@
+# parados
 compile_flags.txt
 paradosd
 parados
@@ -5,3 +6,5 @@ parados
 *.swp
 *.sh
 
+# gorados
+clients/gorados/gorados
