@@ -1,6 +1,6 @@
 // gorados
-// is a Go frontend for the parados
-// HTTP media server
+// is a Go-Web frontendfor the
+// parados HTTP media server
 
 package main
 
@@ -15,18 +15,18 @@ import (
 	"time"
 )
 
+// structs
+
 // library item
 type item struct {
 	ID   string `json:"id"`
 	Path string `json:"path"`
 }
-
 // upstream response
 type library_resp struct {
 	Proto int    `json:"proto"`
 	Items []item `json:"items"`
 }
-
 // /meta/{id} response
 type meta_resp struct {
 	Proto int    `json:"proto"`
@@ -38,20 +38,67 @@ type meta_resp struct {
 	Type  string `json:"type"`
 	Kind  string `json:"kind"`
 }
-
 // app state
 type handler struct {
-	parados string
-	user    string
-	pass    string
-	httpc   *http.Client
+	parados  string
+	web_dir  string
+	httpc    *http.Client
 }
 
-func (h *handler) get_json(url string, out any) (int, error) {
-	req, _ := http.NewRequest("GET", url, nil)
-	if h.user != "" {
-		req.SetBasicAuth(h.user, h.pass)
+// functions
+func (h *handler) serve_file(w http.ResponseWriter, r *http.Request, path string, ctype string) {
+	p := h.web_dir + "/" + path
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		http.Error(w, "Web Error: "+p+": "+err.Error(), 500)
+		return
 	}
+
+	if ctype != "" {
+		w.Header().Set("Content-Type", ctype)
+	}
+
+	w.WriteHeader(200)
+	w.Write(b)
+}
+
+func (h *handler) load_web(path string) (string, error) {
+	p := h.web_dir + "/" + path
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
+}
+
+func (h *handler) web_subst(w http.ResponseWriter, body string, kv map[string]string) {
+	for k, v := range kv {
+		body = strings.ReplaceAll(body, k, v)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(200)
+	w.Write([]byte(body))
+}
+
+func (h *handler) pass_auth(dst *http.Request, src *http.Request) {
+	a := src.Header.Get("Authorization")
+	if a != "" {
+		dst.Header.Set("Authorization", a)
+	}
+}
+
+func (h *handler) upstream_req(method string, path string, r *http.Request) *http.Request {
+	req, _ := http.NewRequest(method, h.parados+path, nil)
+	h.pass_auth(req, r)
+	return req
+}
+
+func (h *handler) upstream_json(path string, r *http.Request, out any) (int, error) {
+	req := h.upstream_req("GET", path, r)
 
 	resp, err := h.httpc.Do(req)
 	if err != nil {
@@ -66,30 +113,77 @@ func (h *handler) get_json(url string, out any) (int, error) {
 	return 200, json.NewDecoder(resp.Body).Decode(out)
 }
 
-func (h *handler) library(w http.ResponseWriter, r *http.Request) {
-	var lr library_resp
-	code, err := h.get_json(h.parados+"/library", &lr)
+func (h *handler) index(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "/index.html" {
+		http.NotFound(w, r)
+		return
+	}
+
+	h.serve_file(w, r, "index.html", "text/html; charset=utf-8")
+}
+
+func (h *handler) style(w http.ResponseWriter, r *http.Request) {
+	h.serve_file(w, r, "style.css", "text/css; charset=utf-8")
+}
+
+func (h *handler) ping(w http.ResponseWriter, r *http.Request) {
+	req := h.upstream_req("GET", "/ping", r)
+
+	resp, err := h.httpc.Do(req)
 	if err != nil {
 		http.Error(w, "Upstream Error", 502)
 		return
 	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+
+	if r.Method == "HEAD" {
+		return
+	}
+
+	io.Copy(w, resp.Body)
+}
+
+func (h *handler) library(w http.ResponseWriter, r *http.Request) {
+	var lr library_resp
+	code, err := h.upstream_json("/library", r, &lr)
+	if err != nil {
+		http.Error(w, "Upstream Error", 502)
+		return
+	}
+
+	if code == 401 {
+		w.Header().Set("WWW-Authenticate", `Basic realm="parados"`)
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+
 	if code != 200 {
 		http.Error(w, http.StatusText(code), code)
 		return
 	}
+
 	if lr.Proto != 1 {
 		http.Error(w, "Unknown Proto Version", 502)
 		return
 	}
 
-	// tmp html
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>parados</title>")
-	fmt.Fprintf(w, "<h1>parados</h1><p>items: %d</p><ul>", len(lr.Items))
-	for _, it := range lr.Items {
-		fmt.Fprintf(w, `<li><a href="/item/%s">%s</a></li>`, it.ID, it.Path)
+	body, err := h.load_web("library.html")
+	if err != nil {
+		http.Error(w, "Web Error: "+h.web_dir+"/library.html: "+err.Error(), 500)
+		return
 	}
-	fmt.Fprintf(w, "</ul>")
+
+	var items strings.Builder
+	for _, it := range lr.Items {
+		fmt.Fprintf(&items, `<li><a href="/item/%s">%s</a></li>`+"\n", it.ID, it.Path)
+	}
+
+	h.web_subst(w, body, map[string]string{
+		"{{COUNT}}": fmt.Sprintf("%d", len(lr.Items)),
+		"{{ITEMS}}": items.String(),
+	})
 }
 
 func (h *handler) item(w http.ResponseWriter, r *http.Request) {
@@ -100,47 +194,62 @@ func (h *handler) item(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var mr meta_resp
-	code, err := h.get_json(h.parados+"/meta/"+id, &mr)
+	code, err := h.upstream_json("/meta/"+id, r, &mr)
 	if err != nil {
 		http.Error(w, "Upstream Error", 502)
 		return
 	}
+
+	if code == 401 {
+		w.Header().Set("WWW-Authenticate", `Basic realm="parados"`)
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+
 	if code != 200 {
 		http.Error(w, http.StatusText(code), code)
 		return
 	}
+
 	if mr.Proto != 1 {
 		http.Error(w, "Unknown Proto Version", 502)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>%s</title>", mr.Name)
-	fmt.Fprintf(w, "<h1>%s</h1>", mr.Name)
-	fmt.Fprintf(w, "<p><code>%s</code></p>", mr.Path)
-	fmt.Fprintf(w, "<ul>")
-	fmt.Fprintf(w, "<li>id: <code>%s</code></li>", mr.ID)
-	fmt.Fprintf(w, "<li>type: <code>%s</code></li>", mr.Type)
-	fmt.Fprintf(w, "<li>kind: <code>%s</code></li>", mr.Kind)
-	fmt.Fprintf(w, "<li>size: %d</li>", mr.Size)
-	fmt.Fprintf(w, "<li>mtime: %d</li>", mr.Mtime)
-	fmt.Fprintf(w, "</ul>")
-
-	// player
-	if mr.Kind == "video" {
-		fmt.Fprintf(w, `<video controls preload="metadata" style="max-width: 100%%;" src="/stream/%s"></video>`, mr.ID)
-
-	} else if mr.Kind == "audio" {
-		fmt.Fprintf(w, `<audio controls preload="metadata" style="width: 100%%;" src="/stream/%s"></audio>`, mr.ID)
-
-	} else if mr.Kind == "image" {
-		fmt.Fprintf(w, `<p><img style="max-width: 100%%;" src="/stream/%s"></p>`, mr.ID)
-
-	} else {
-		fmt.Fprintf(w, `<p><a href="/stream/%s">download</a></p>`, mr.ID)
+	body, err := h.load_web("item.html")
+	if err != nil {
+		http.Error(w, "Web Error: "+h.web_dir+"/item.html: "+err.Error(), 500)
+		return
 	}
 
-	fmt.Fprintf(w, `<p><a href="/library">back</a> | <a href="/stream/%s">stream</a></p>`, mr.ID)
+	var meta strings.Builder
+	fmt.Fprintf(&meta, "<li>id: <code>%s</code></li>\n", mr.ID)
+	fmt.Fprintf(&meta, "<li>type: <code>%s</code></li>\n", mr.Type)
+	fmt.Fprintf(&meta, "<li>kind: <code>%s</code></li>\n", mr.Kind)
+	fmt.Fprintf(&meta, "<li>size: %d</li>\n", mr.Size)
+	fmt.Fprintf(&meta, "<li>mtime: %d</li>\n", mr.Mtime)
+
+	player := ""
+	if mr.Kind == "video" {
+		player = fmt.Sprintf(`<video controls preload="metadata" src="/stream/%s"></video>`, mr.ID)
+
+	} else if mr.Kind == "audio" {
+		player = fmt.Sprintf(`<audio controls preload="metadata" src="/stream/%s"></audio>`, mr.ID)
+
+	} else if mr.Kind == "image" {
+		player = fmt.Sprintf(`<p><img src="/stream/%s"></p>`, mr.ID)
+
+	} else {
+		player = fmt.Sprintf(`<p><a href="/stream/%s">download</a></p>`, mr.ID)
+	}
+
+	h.web_subst(w, body, map[string]string{
+		"{{ID}}": mr.ID,
+		"{{NAME}}": mr.Name,
+		"{{PATH}}": mr.Path,
+		"{{META}}": meta.String(),
+		"{{PLAYER}}": player,
+	})
 }
 
 func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
@@ -155,19 +264,13 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// build upstream req
-	req, _ := http.NewRequest(r.Method, h.parados+"/stream/"+id, nil)
-	if h.user != "" {
-		req.SetBasicAuth(h.user, h.pass)
-	}
+	req := h.upstream_req(r.Method, "/stream/"+id, r)
 
-	// pass through Range for seeking
 	rng := r.Header.Get("Range")
 	if rng != "" {
 		req.Header.Set("Range", rng)
 	}
 
-	// call upstream
 	resp, err := h.httpc.Do(req)
 	if err != nil {
 		http.Error(w, "Upstream Error", 502)
@@ -175,7 +278,12 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// copy important headers for playback
+	if resp.StatusCode == 401 {
+		w.Header().Set("WWW-Authenticate", `Basic realm="parados"`)
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+
 	ct := resp.Header.Get("Content-Type")
 	if ct != "" {
 		w.Header().Set("Content-Type", ct)
@@ -201,44 +309,38 @@ func (h *handler) stream(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", cd)
 	}
 
-	// mirror status (200/206/400/416/401/404/etc)
 	w.WriteHeader(resp.StatusCode)
 
-	// HEAD: no body
 	if r.Method == "HEAD" {
 		return
 	}
 
-	// stream body
 	io.Copy(w, resp.Body)
 }
 
 func main() {
-	listen := flag.String("listen", "127.0.0.1:8808", "Listen Addr")
-	par := flag.String("parados", "http://127.0.0.1:8088", "Parados Base URL")
+	listen := flag.String("listen", "0.0.0.0:8808", "Listen Addr")
+	par := flag.String("parados", "http://127.0.0.1:8088", "Parados URL")
+	web := flag.String("web", "web", "Web-Content Dir")
 	flag.Parse()
-
-	user := "admin"
-	pass := "123"
 
 	h := &handler{
 		parados: *par,
-		user:    user,
-		pass:    pass,
-		httpc:   &http.Client{Timeout: 15 * time.Second},
+		web_dir: *web,
+		httpc: &http.Client{Timeout: 15 * time.Second},
 	}
 
 	// routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/library", http.StatusSeeOther)
-	})
+	mux.HandleFunc("/", h.index)
+	mux.HandleFunc("/style.css", h.style)
+	mux.HandleFunc("/ping", h.ping)
 	mux.HandleFunc("/library", h.library)
 	mux.HandleFunc("/item/", h.item)
 	mux.HandleFunc("/stream/", h.stream)
 
 	// start server
-	fmt.Fprintf(os.Stderr, "gorados: listening on %s\n", *listen)
+	fmt.Fprintf(os.Stderr, "listening on %s\n", *listen)
 	if err := http.ListenAndServe(*listen, mux); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
