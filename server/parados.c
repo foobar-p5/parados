@@ -10,7 +10,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -28,6 +27,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <tinycthread.h>
 
 #include "config.h"
 #include "http.h"
@@ -40,7 +40,7 @@
 #endif /* GIT_VER */
 
 static void apply_rlimits(void);
-static void* client_thread(void* arg);
+static int client_thread(void* arg);
 static void fd_set_cloexec(int fd);
 static void sock_set_timeouts(int fd);
 
@@ -51,7 +51,7 @@ void setup(void);
 static sem_t slots;
 static int sock;
 struct library lib;
-pthread_rwlock_t lib_lock = PTHREAD_RWLOCK_INITIALIZER;
+mtx_t lib_lock;
 
 static void apply_rlimits(void)
 {
@@ -66,7 +66,7 @@ static void apply_rlimits(void)
 	(void)setrlimit(RLIMIT_NOFILE, &rl);
 }
 
-static void* client_thread(void* arg)
+static int client_thread(void* arg)
 {
 	int c = (int)(intptr_t)arg;
 
@@ -76,7 +76,7 @@ static void* client_thread(void* arg)
 	close(c);
 
 	(void)sem_post(&slots);
-	return NULL;
+	return 0;
 }
 
 static void fd_set_cloexec(int fd)
@@ -135,16 +135,16 @@ void run(void)
 		}
 
 		LOG(verbose_log, "CORE", "Connection         Accepted");
-		pthread_t t;
-		int err = pthread_create(&t, NULL, client_thread, (void*)(intptr_t)c);
-		if (err != 0) {
-			LOG(true, "CORE", "pthread_create FAILED %d", err);
+		thrd_t t;
+		int err = thrd_create(&t, client_thread, (void*)(intptr_t)c);
+		if (err != thrd_success) {
+			LOG(true, "CORE", "thrd_create FAILED  %d", err);
 			close(c);
 			(void)sem_post(&slots);
 			continue;
 		}
 
-		(void)pthread_detach(t);
+		(void)thrd_detach(t);
 	}
 }
 
@@ -154,6 +154,9 @@ void setup(void)
 
 	config_load();
 	apply_rlimits();
+
+	if (mtx_init(&lib_lock, mtx_plain) != thrd_success)
+		die("mtx_init", EXIT_FAILURE);
 
 	if (sem_init(&slots, 0, max_clients) < 0)
 		die("sem_init", EXIT_FAILURE);

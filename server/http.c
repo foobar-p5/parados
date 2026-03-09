@@ -1,7 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -11,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <tinycthread.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -37,7 +37,7 @@ static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
 extern struct library lib;
-extern pthread_rwlock_t lib_lock;
+extern mtx_t lib_lock;
 
 static int cors_origin_allowed(const char* origin)
 {
@@ -142,7 +142,7 @@ static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
 
 	out[0] = '\0';
 
-	pthread_rwlock_rdlock(&lib_lock);
+	mtx_lock(&lib_lock);
 
 	const struct item* it = find_item(id);
 	if (!it) {
@@ -163,7 +163,7 @@ static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
 	ret = 0;
 
 out:
-	pthread_rwlock_unlock(&lib_lock);
+	mtx_unlock(&lib_lock);
 	return ret; /* 0 ok, 1 not found, -1 error */
 }
 
@@ -654,7 +654,7 @@ int http_handle(int c)
 	if (strcmp(path, "/library") == 0) {
 		LOG(verbose_log, "HTTP", "Route              /library");
 
-		pthread_rwlock_rdlock(&lib_lock);
+		mtx_lock(&lib_lock);
 
 		struct json j;
 		struct library view;
@@ -667,7 +667,7 @@ int http_handle(int c)
 			if (lib.len > 0) {
 				view.items = calloc(lib.len, sizeof(*view.items));
 				if (!view.items) {
-					pthread_rwlock_unlock(&lib_lock);
+					mtx_unlock(&lib_lock);
 					reply_text(c, hdr, HTTP_500, "Server Error\n");
 					return -1;
 				}
@@ -685,14 +685,14 @@ int http_handle(int c)
 			if (u)
 				free(view.items);
 
-			pthread_rwlock_unlock(&lib_lock);
+			mtx_unlock(&lib_lock);
 
 			LOG(verbose_log, "JSON", "Encode     FAILED");
 			reply_text(c, hdr, HTTP_500, "JSON Encode Failed\n");
 			return -1;
 		}
 
-		pthread_rwlock_unlock(&lib_lock);
+		mtx_unlock(&lib_lock);
 
 		LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
 
@@ -723,7 +723,7 @@ int http_handle(int c)
 		size_t before = 0;
 		size_t after  = 0;
 
-		pthread_rwlock_wrlock(&lib_lock);
+		mtx_lock(&lib_lock);
 
 		before = lib.len;
 		LOG(verbose_log, "SCAN", "Rescan begin       %s (%zu items)", media_dir, before);
@@ -732,7 +732,7 @@ int http_handle(int c)
 
 		after = lib.len;
 
-		pthread_rwlock_unlock(&lib_lock);
+		mtx_unlock(&lib_lock);
 
 		clock_gettime(CLOCK_MONOTONIC, &t1);
 
