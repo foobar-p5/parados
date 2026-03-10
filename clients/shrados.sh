@@ -210,6 +210,7 @@ Commands:
   cd ..                go up one directory
   cd /                 go to root
   watch n              play video at ls index using VIDEO_PLAYER
+  url URL              set server URL
   pwd                  show current folder
   quit | exit          leave shrados
 EOF2
@@ -246,6 +247,20 @@ cmd_ls()
 
 # print current dir
 cmd_pwd() { [ -n "$CUR_DIR" ] && printf '/%s\n' "$CUR_DIR" || printf '/\n'; }
+
+# set server URL and reload library from new endpoint
+cmd_url()
+{
+	[ $# -eq 1 ] || { printf '%s\n' "usage: url <http://host:port>" >&2; return 1; }
+	PARADOS_URL=$1
+	CUR_DIR=""
+	if refresh_library; then
+		printf 'server: %s\n' "$PARADOS_URL"
+	else
+		printf 'server set to: %s\n' "$PARADOS_URL"
+		return 1
+	fi
+}
 
 # change directory based on ls index, .., or /
 cmd_cd()
@@ -373,6 +388,7 @@ dispatch()
 		ls) cmd_ls ;;
 		cd) cmd_cd "$@" ;;
 		watch) cmd_watch "$@" ;;
+		url) cmd_url "$@" ;;
 		pwd) cmd_pwd ;;
 		quit|exit) return 99 ;;
 		'') return 0 ;;
@@ -388,12 +404,7 @@ main()
 	: > "$LIB_FILE"; : > "$MAP_FILE"
 
 	if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then cmd_help; exit 0; fi
-	if [ "${1:-}" = "--url" ]; then
-		[ $# -ge 2 ] || die "missing value for --url"
-		PARADOS_URL=$2
-		shift 2
-	fi
-	[ $# -eq 0 ] || die "usage: shrados.sh [--url URL]"
+	[ $# -eq 0 ] || die "usage: shrados"
 
 	load_auth_cache
 	if ! refresh_library; then printf '%s\n' "not logged in. use: login" >&2; fi
