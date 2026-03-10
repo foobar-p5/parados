@@ -19,6 +19,19 @@ man 7 parados       # Interfacing with parados
 man 5 parados.conf  # Parados configuration
 ```
 
+### Clients
+In the parados Git repo, you can find two clients which use
+the protocol.  
+
+First, _gorados_ is a Go based WebUI; it is
+bare bones and if anyone would like to contribute, feel free
+to do so!  
+
+Second, _shrados_ is a client written in POSIX shell. A list
+of dependancies are in the [README](clients/shrados/README.md).
+It behaves like a parados shell and is the one I peronally
+use.  
+
 ### Issues
 If you find a bug or would like to suggest something,
 open an issue on the GitHub page. Issues should be
@@ -32,6 +45,10 @@ style (indentation, variable names, formatting) should
 _not_ be altered.** Please make sure you know how the
 formatting of the project looks like before submitting
 a PR.  
+
+> Note: it is recommended you don't expose parados itself
+> but rather the client if using a web client. Also setting
+> a HTTPS reverse proxy is a good idea
 
 ### Repository Links
 [[GitHub](https://github.com/uint23/parados)] [[SourceHut](https://sr.ht/~uint/parados)]
