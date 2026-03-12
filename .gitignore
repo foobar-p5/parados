@@ -5,6 +5,6 @@ parados
 *.o
 *.swp
 *.sh
-!clients/shrados
+!clients/shrados/*
 # gorados
 clients/gorados/gorados
