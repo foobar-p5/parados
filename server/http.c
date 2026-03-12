@@ -21,6 +21,7 @@
 #include "users.h"
 #include "util.h"
 
+static void auth_delay_sleep(void);
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
 static const struct item* find_item(uint64_t id);
 static int item_path_for_id(char out[4096], uint64_t id, const struct user* u);
@@ -38,6 +39,25 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 
 extern struct library lib;
 extern mtx_t lib_lock;
+
+static void auth_delay_sleep(void)
+{
+	if (auth_delay <= 0)
+		return;
+
+	struct timespec req;
+	struct timespec rem;
+
+	/* convert ms to timespec */
+	req.tv_sec = auth_delay / 1000;
+	req.tv_nsec = (long)(auth_delay % 1000) * 1000000L;
+
+	while (nanosleep(&req, &rem) < 0) {
+		if (errno != EINTR)
+			break;
+		req = rem;
+	}
+}
 
 static int cors_origin_allowed(const char* origin)
 {
@@ -429,6 +449,8 @@ static void reply_unauth(int c, const char* hdr, int send_body)
 {
 	const char* body = "unauthorized\n";
 	size_t blen = strlen(body);
+
+	auth_delay_sleep();
 
 	reply(
 		c, hdr,

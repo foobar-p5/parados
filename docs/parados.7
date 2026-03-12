@@ -38,6 +38,12 @@ Credentials are provided using the
 header.
 .Pp
 If no users are configured, authentication is disabled.
+.Pp
+If
+.Ic auth_delay
+is configured in
+.Xr parados.conf 5 ,
+unauthorized responses may be intentionally delayed.
 .Sh ENDPOINTS
 .Bl -tag -width Ds
 .It Pa /ping

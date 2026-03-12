@@ -10,6 +10,7 @@ extern bool verbose_log;
 extern int server_port;
 extern int http_io_timeout;
 extern int max_clients;
+extern int auth_delay;
 
 /*
 	Load configuration and populate global settings

@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +21,7 @@ bool verbose_log = true;
 char cors_origin[1024] = "";
 int http_io_timeout = 5;
 int max_clients = 64;
+int auth_delay = 250;
 
 static int load_path(const char* path)
 {
@@ -155,6 +157,23 @@ static int set_kv(const char* k, const char* v)
 		return 0;
 	}
 
+	if (strcmp(k, "auth_delay") == 0) {
+		char* end = NULL;
+		long n = strtol(v, &end, 10);
+
+		if (end == v || *end != '\0') {
+			LOG(true, "CONF", "Config Error       %s invalid integer '%s'", k, v);
+			return -1;
+		}
+		if (n < 0 || n > INT_MAX) {
+			LOG(true, "CONF", "Config Error       auth_delay out of bounds (0..%d)", INT_MAX);
+			return -1;
+		}
+
+		auth_delay = (int)n;
+		return 0;
+	}
+
 	/* auth */
 	if (strcmp(k, "user") == 0) {
 		int r = users_push(v);
@@ -227,6 +246,7 @@ log:
 	char port[8];
 	char tmo[16];
 	char maxc[16];
+	char adly[16];
 
 	LOG(true, "CONF", "Config File        %s", path);
 	LOG(true, "CONF", "Media Directory    %s", media_dir);
@@ -239,6 +259,8 @@ log:
 	LOG(true, "CONF", "HTTP IO Timeout    %s", tmo);
 	snprintf(maxc, sizeof(maxc), "%d", max_clients);
 	LOG(true, "CONF", "Max Clients        %s", maxc);
+	snprintf(adly, sizeof(adly), "%d", auth_delay);
+	LOG(true, "CONF", "Auth Delay         %s (ms)", adly);
 
 	return;
 }

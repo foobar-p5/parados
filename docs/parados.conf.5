@@ -123,6 +123,23 @@ Example:
 .Bd -literal -offset indent
 max_clients=64
 .Ed
+.It Ic auth_delay
+Delay (in ms) before returning
+.Dv 401 Unauthorized
+responses.
+.Pp
+This can slow down brute force login attempts.
+.Pp
+Valid values are non-negative integers 0..
+.Dv INT_MAX .
+A value of
+.Cm 0
+disables the delay.
+.Pp
+Example:
+.Bd -literal -offset indent
+auth_delay=250
+.Ed
 .El
 .Sh AUTHENTICATION
 Authentication entries are specified using repeated groups
@@ -192,6 +209,7 @@ server_addr=127.0.0.1
 server_port=8088
 verbose_log=true
 cors_origin=
+auth_delay=0
 .Ed
 .Pp
 Two users with separate access:
