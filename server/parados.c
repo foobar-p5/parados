@@ -10,7 +10,6 @@
 
 #include <errno.h>
 #include <fcntl.h>
-#include <semaphore.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -43,15 +42,18 @@ static void apply_rlimits(void);
 static int client_thread(void* arg);
 static void fd_set_cloexec(int fd);
 static void sock_set_timeouts(int fd);
+static void release_slot(void);
+static int try_acquire_slot(void);
 
 void die(const char* s, int e);
 void run(void);
 void setup(void);
 
-static sem_t slots;
 static int sock;
 struct library lib;
 mtx_t lib_lock;
+static mtx_t slots_lock;
+static int slots_available;
 
 static void apply_rlimits(void)
 {
@@ -75,7 +77,7 @@ static int client_thread(void* arg)
 	shutdown(c, SHUT_WR);
 	close(c);
 
-	(void)sem_post(&slots);
+	release_slot();
 	return 0;
 }
 
@@ -94,6 +96,33 @@ static void sock_set_timeouts(int fd)
 
 	(void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	(void)setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+static void release_slot(void)
+{
+	if (mtx_lock(&slots_lock) != thrd_success)
+		return;
+
+	if (slots_available < max_clients)
+		slots_available++;
+
+	(void)mtx_unlock(&slots_lock);
+}
+
+static int try_acquire_slot(void)
+{
+	int ok = 0;
+
+	if (mtx_lock(&slots_lock) != thrd_success)
+		return -1;
+
+	if (slots_available > 0) {
+		slots_available--;
+		ok = 1;
+	}
+
+	(void)mtx_unlock(&slots_lock);
+	return ok;
 }
 
 void die(const char* s, int e)
@@ -117,7 +146,7 @@ void run(void)
 		fd_set_cloexec(c);
 
 		/* client cap. if full 503 and close */
-		if (sem_trywait(&slots) < 0) {
+		if (try_acquire_slot() != 1) {
 			/* short 503 + retry after */
 			static const char resp[] =
 				"HTTP/1.1 503 Service Unavailable\r\n"
@@ -140,7 +169,7 @@ void run(void)
 		if (err != thrd_success) {
 			LOG(true, "CORE", "thrd_create FAILED  %d", err);
 			close(c);
-			(void)sem_post(&slots);
+			release_slot();
 			continue;
 		}
 
@@ -158,8 +187,9 @@ void setup(void)
 	if (mtx_init(&lib_lock, mtx_plain) != thrd_success)
 		die("mtx_init", EXIT_FAILURE);
 
-	if (sem_init(&slots, 0, max_clients) < 0)
-		die("sem_init", EXIT_FAILURE);
+	if (mtx_init(&slots_lock, mtx_plain) != thrd_success)
+		die("mtx_init", EXIT_FAILURE);
+	slots_available = max_clients;
 
 	int ret = 1;
 	sock = socket(AF_INET, SOCK_STREAM, 0);
