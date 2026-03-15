@@ -5,11 +5,6 @@
 
 set -u
 
-# Options:
-#     CACHE_LOGIN: 1 to cache auth in ~/.cache/shrados.auth, 0 to disable.
-#     VIDEO_PLAYER: player command used by "watch n".
-#     VIDEO_PLAYER_ARGS: extra args appended before "-" stdin input.
-
 CACHE_LOGIN=${CACHE_LOGIN:-1}
 VIDEO_PLAYER=${VIDEO_PLAYER:-mpv}
 VIDEO_PLAYER_ARGS=${VIDEO_PLAYER_ARGS:-}
@@ -84,13 +79,31 @@ is_video_path()
 	esac
 }
 
+# percent encode credentials to be safely embedded in the URL
+urlencode_userinfo()
+{
+	LC_ALL=C awk -v s="$1" '
+	BEGIN {
+		safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
+		for (i = 1; i < 256; i++)
+			ord[sprintf("%c", i)] = i
+		for (i = 1; i <= length(s); i++) {
+			c = substr(s, i, 1)
+			if (index(safe, c) > 0)
+				printf "%s", c
+			else
+				printf "%%%02X", ord[c]
+		}
+	}'
+}
+
 # do a HTTP GET request, save body to file, return HTTP code
 http_get()
 {
 	if [ -n "$AUTH" ]; then
-		"$PARADOS_CURL" -sS -u "$AUTH" -o "$2" -w '%{http_code}' "${PARADOS_URL}$1"
+		"$PARADOS_CURL" -q -sS -u "$AUTH" -o "$2" -w '%{http_code}' "${PARADOS_URL}$1"
 	else
-		"$PARADOS_CURL" -sS -o "$2" -w '%{http_code}' "${PARADOS_URL}$1"
+		"$PARADOS_CURL" -q -sS -o "$2" -w '%{http_code}' "${PARADOS_URL}$1"
 	fi
 }
 
@@ -282,7 +295,47 @@ cmd_cd()
 	CUR_DIR=$ENTRY_FULL
 }
 
-# given ls index, get video id, call "/stream/id", pipe to VIDEO_PLAYER, print errors
+# build URL for "/stream/id", embedding auth if needed for seeking
+build_stream_url()
+{
+	base=${PARADOS_URL%/}
+	path="/stream/$1"
+
+	[ -n "$AUTH" ] || {
+		printf '%s%s' "$base" "$path"
+		return 0
+	}
+
+	case "$AUTH" in
+		*:)
+			user=${AUTH%:}
+			pass=""
+			;;
+		*:*)
+			user=${AUTH%%:*}
+			pass=${AUTH#*:}
+			;;
+		*)
+			user=$AUTH
+			pass=""
+			;;
+	esac
+
+	case "$base" in
+		*://*)
+			user_enc=$(urlencode_userinfo "$user") || return 1
+			pass_enc=$(urlencode_userinfo "$pass") || return 1
+			scheme=${base%%://*}
+			rest=${base#*://}
+			printf '%s://%s:%s@%s%s' "$scheme" "$user_enc" "$pass_enc" "$rest" "$path"
+			;;
+		*)
+			printf '%s%s' "$base" "$path"
+			;;
+	esac
+}
+
+# given ls index, get video id, launch VIDEO_PLAYER on streams URL
 cmd_watch()
 {
 	[ $# -eq 1 ] || { printf '%s\n' "usage: watch <n>" >&2; return 1; }
@@ -293,14 +346,11 @@ cmd_watch()
 	[ "$ENTRY_TYP" = "F" ] || { printf '%s\n' "index is not a video: $1" >&2; return 1; }
 	validate_id "$ENTRY_ID" || { printf '%s\n' "invalid id in index: $1" >&2; return 1; }
 	cmd_exists "$VIDEO_PLAYER"
+	stream_url=$(build_stream_url "$ENTRY_ID") || { printf '%s\n' "failed building stream URL" >&2; return 1; }
 	printf 'watching: %s\n' "$ENTRY_NAME"
 	# shellcheck disable=SC2086
-	set -- "$VIDEO_PLAYER" $VIDEO_PLAYER_ARGS -
-	if [ -n "$AUTH" ]; then
-		"$PARADOS_CURL" -sS -u "$AUTH" "${PARADOS_URL}/stream/$ENTRY_ID" | "$@"
-	else
-		"$PARADOS_CURL" -sS "${PARADOS_URL}/stream/$ENTRY_ID" | "$@"
-	fi
+	set -- "$VIDEO_PLAYER" $VIDEO_PLAYER_ARGS "$stream_url"
+	"$@"
 }
 
 # call "/rescan", print response or error
