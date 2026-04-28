@@ -1,0 +1,47 @@
+PROJECT_NAME           = "parados"
+PROJECT_BRIEF          = "Home media server for UNIX machines"
+OUTPUT_DIRECTORY       = doxygen_build
+CREATE_SUBDIRS         = NO
+
+INPUT                  = ../README.md \
+                         ../server \
+                         ../server/include
+FILE_PATTERNS          = *.c *.h *.md *.dox
+RECURSIVE              = YES
+EXCLUDE                = doxygen_build \
+                         ../external \
+                         ../clients
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_XML           = NO
+
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = YES
+HIDE_UNDOC_CLASSES     = YES
+SORT_MEMBER_DOCS       = NO
+
+OPTIMIZE_OUTPUT_FOR_C  = YES
+MARKDOWN_SUPPORT       = YES
+USE_MDFILE_AS_MAINPAGE = ../README.md
+
+STRIP_FROM_PATH        = ..
+FULL_PATH_NAMES        = NO
+
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = NO
+
+SEARCHENGINE           = YES
+GENERATE_TREEVIEW      = YES
+DISABLE_INDEX          = NO
+FULL_SIDEBAR           = YES
+HAVE_DOT               = NO
+

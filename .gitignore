@@ -1,10 +1,12 @@
 # parados
+docs/doxygen_build
 compile_flags.txt
 paradosd
 parados
 *.o
 *.swp
 *.sh
+# clients
 !clients/shrados/*
-# gorados
 clients/gorados/gorados
+
