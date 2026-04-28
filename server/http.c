@@ -40,6 +40,11 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 extern struct library lib;
 extern mtx_t lib_lock;
 
+/**
+ * @brief Sleep for configured auth delay
+ *
+ * @note Retries on EINTR.
+ */
 static void auth_delay_sleep(void)
 {
 	if (auth_delay <= 0)
@@ -59,6 +64,13 @@ static void auth_delay_sleep(void)
 	}
 }
 
+/**
+ * @brief Check whether origin is allowed by CORS config
+ *
+ * @param origin Request Origin header value
+ *
+ * @return 1=Allowed, 0=Not allowed
+ */
 static int cors_origin_allowed(const char* origin)
 {
 	if (cors_origin[0] == '\0')
@@ -92,6 +104,16 @@ static int cors_origin_allowed(const char* origin)
 	return 0;
 }
 
+/**
+ * @brief Build CORS response headers
+ *
+ * @param out Output buffer
+ * @param outsz Output buffer size
+ * @param hdr Request header block
+ * @param preflight Whether this is a preflight response
+ *
+ * @return 1=Built, 0=Not emitted
+ */
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 {
 	char origin[512];
@@ -144,6 +166,13 @@ static int cors_build(char* out, size_t outsz, const char* hdr, int preflight)
 	return 1;
 }
 
+/**
+ * @brief Find library item by id
+ *
+ * @param id Item id
+ *
+ * @return Item Ptr=Found, NULL=Not found
+ */
 static const struct item* find_item(uint64_t id)
 {
 	for (size_t i = 0; i < lib.len; i++)
@@ -153,6 +182,15 @@ static const struct item* find_item(uint64_t id)
 	return NULL;
 }
 
+/**
+ * @brief Resolve relative item path for a given id
+ *
+ * @param out Output path buffer
+ * @param id Item id
+ * @param u Authenticated user filter
+ *
+ * @return 0=Success, 1=Not found, -1=Failure
+ */
 static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
 {
 	int ret = -1;
@@ -187,6 +225,13 @@ out:
 	return ret; /* 0 ok, 1 not found, -1 error */
 }
 
+/**
+ * @brief Infer MIME type from file path extension
+ *
+ * @param path File path
+ *
+ * @return MIME type string
+ */
 static const char* mime_from_path(const char* path)
 {
 	const char* dot = strrchr(path, '.');
@@ -240,6 +285,14 @@ static const char* mime_from_path(const char* path)
 	return "application/octet-stream";
 }
 
+/**
+ * @brief Parse 16-digit hex string to uint64
+ *
+ * @param s Input string
+ * @param out Output value
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int parse_hex64(const char* s, uint64_t* out)
 {
 	if (!s || !out)
@@ -264,6 +317,16 @@ static int parse_hex64(const char* s, uint64_t* out)
 	return 0;
 }
 
+/**
+ * @brief Parse HTTP Range header
+ *
+ * @param hdr Request header block
+ * @param total Total file size in bytes
+ * @param start Output start offset
+ * @param end Output end offset
+ *
+ * @return RANGE_NONE=No header, RANGE_OK=Valid range, RANGE_BAD=Malformed, RANGE_UNSAT=Unsatisfiable
+ */
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end)
 {
 	const char* p = cistrstr(hdr, "\nrange:");
@@ -349,6 +412,19 @@ static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end
 	return RANGE_OK;
 }
 
+/**
+ * @brief Read and parse a single HTTP request
+ *
+ * @param c Connected client socket file descriptor
+ * @param method Output method buffer
+ * @param msz Method buffer size
+ * @param path Output path buffer
+ * @param psz Path buffer size
+ * @param hdr Output raw header buffer
+ * @param hsz Header buffer size
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz)
 {
 	size_t used = 0;
@@ -389,6 +465,19 @@ static int read_request(int c, char* method, size_t msz, char* path, size_t psz,
 	return 0;
 }
 
+/**
+ * @brief Send HTTP response header and optional body
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param status HTTP status line
+ * @param ctype Content-Type header string
+ * @param extra Extra response headers
+ * @param body Response body
+ * @param len Response body length
+ * @param send_body Whether to send body bytes
+ * @param preflight Whether this is a preflight response
+ */
 static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight)
 {
 	char resp[HTTP_RESP_MAX];
@@ -429,22 +518,53 @@ static void reply(int c, const char* hdr, const char* status, const char* ctype,
 		(void)write_all(c, body, len);
 }
 
+/**
+ * @brief Send JSON HTTP response
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param status HTTP status line
+ * @param body Response body
+ * @param len Response body length
+ * @param send_body Whether to send body bytes
+ */
 static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
 {
 	reply(c, hdr, status, HTTP_JSON, NULL, body, len, send_body, 0);
 }
 
+/**
+ * @brief Send CORS preflight response
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ */
 static void reply_preflight(int c, const char* hdr)
 {
 	reply(c, hdr, HTTP_204, NULL, NULL, NULL, (size_t)0, 0, 1);
 }
 
+/**
+ * @brief Send text/plain HTTP response
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param status HTTP status line
+ * @param body Response body
+ */
 static void reply_text(int c, const char* hdr, const char* status, const char* body)
 {
 	size_t len = strlen(body);
 	reply(c, hdr, status, HTTP_TEXT, NULL, body, len, 1, 0);
 }
 
+/**
+ * @brief Send 401 Unauthorized response
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param send_body Whether to send body bytes
+ */
 static void reply_unauth(int c, const char* hdr, int send_body)
 {
 	const char* body = "unauthorized\n";
@@ -464,6 +584,14 @@ static void reply_unauth(int c, const char* hdr, int send_body)
 	);
 }
 
+/**
+ * @brief Stat media item on disk
+ *
+ * @param it Library item
+ * @param st Output stat buffer
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int stat_item(const struct item* it, struct stat* st)
 {
 	char full[4096];
@@ -480,6 +608,16 @@ static int stat_item(const struct item* it, struct stat* st)
 	return 0;
 }
 
+/**
+ * @brief Stream item file to HTTP client
+ *
+ * @param c Connected client socket file descriptor
+ * @param it Library item
+ * @param hdr Request header block
+ * @param head_only Whether request method is HEAD
+ *
+ * @return 0=Handled, -1=Failure
+ */
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only)
 {
 	char full[4096];

@@ -16,6 +16,13 @@ static int json_putn(struct json* j, const char* s, size_t n);
 static int json_puts(struct json* j, const char* s);
 static int json_string(struct json* j, const char* s);
 
+/**
+ * @brief Extract basename from path
+ *
+ * @param path Input path
+ *
+ * @return Ptr to basename
+ */
 static const char* json_basename(const char* path)
 {
 	if (!path)
@@ -25,6 +32,14 @@ static const char* json_basename(const char* path)
 	return p ? (p + 1) : path;
 }
 
+/**
+ * @brief Grow JSON buffer capacity
+ *
+ * @param j JSON buffer
+ * @param need Additional bytes needed
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_grow(struct json* j, size_t need)
 {
 	if (j->len + need <= j->cap)
@@ -46,6 +61,14 @@ static int json_grow(struct json* j, size_t need)
 	return 0;
 }
 
+/**
+ * @brief Encode uint64 as 16-digit hex string
+ *
+ * @param j Output JSON buffer
+ * @param v Input value
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_hex64(struct json* j, uint64_t v)
 {
 	char hex[17];
@@ -60,6 +83,13 @@ static int json_hex64(struct json* j, uint64_t v)
 	return json_string(j, hex);
 }
 
+/**
+ * @brief Map MIME type to item kind
+ *
+ * @param type MIME type string
+ *
+ * @return Item kind string
+ */
 static const char* json_kind_from_type(const char* type)
 {
 	if (!type || type[0] == '\0')
@@ -75,11 +105,28 @@ static const char* json_kind_from_type(const char* type)
 	return "other";
 }
 
+/**
+ * @brief Append single byte to JSON buffer
+ *
+ * @param j Output JSON buffer
+ * @param c Byte to append
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_putc(struct json* j, char c)
 {
 	return json_putn(j, &c, 1);
 }
 
+/**
+ * @brief Append byte range to JSON buffer
+ *
+ * @param j Output JSON buffer
+ * @param s Input bytes
+ * @param n Number of bytes to append
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_putn(struct json* j, const char* s, size_t n)
 {
 	if (json_grow(j, n + 1) < 0)
@@ -92,11 +139,27 @@ static int json_putn(struct json* j, const char* s, size_t n)
 	return 0;
 }
 
+/**
+ * @brief Append string to JSON buffer
+ *
+ * @param j Output JSON buffer
+ * @param s Input string
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_puts(struct json* j, const char* s)
 {
 	return json_putn(j, s, strlen(s));
 }
 
+/**
+ * @brief Append JSON string with escaping
+ *
+ * @param j Output JSON buffer
+ * @param s Input string
+ *
+ * @return 0=Success, -1=Failure
+ */
 static int json_string(struct json* j, const char* s)
 {
 	/* opening quote */
