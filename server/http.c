@@ -34,14 +34,19 @@ struct response {
 
 static void auth_delay_sleep(void);
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
+static int cors_origin_allowed(const char* origin);
 static const struct item* find_item(uint64_t id);
 static int item_path_for_id(char out[4096], uint64_t id, const struct user* u);
 static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
-static int path_item(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
 static void reply(int c, const char* hdr, const struct response* res);
+static int route_dispatch(int c, const char* hdr, const char* path, const struct user* u, int head_only);
+static int route_item_path(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr);
+static int route_library(int c, const char* hdr, const struct user* u, int head_only);
+static int route_method(int c, const char* hdr, const char* method, int* head_only);
+static int route_rescan(int c, const char* hdr, const struct user* u);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
@@ -326,66 +331,6 @@ static int parse_hex64(const char* s, uint64_t* out)
 }
 
 /**
- * @brief Parse route id and resolve to an item
- *
- * @param it Output item
- * @param path Request path
- * @param prefix Route prefix
- * @param u Authenticated user filter
- * @param c Connected client socket file descriptor
- * @param hdr Request header block
- *
- * @return 0=Success, 1=Response sent, -1=Failure
- */
-static int path_item(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr)
-{
-	uint64_t id;
-	int fr;
-
-	if (parse_hex64(path + strlen(prefix), &id) < 0) {
-		reply(c, hdr, &(struct response){
-			.status = HTTP_400,
-			.ctype = HTTP_TEXT,
-			.extra = NULL,
-			.body = "Bad Request\n",
-			.len = sizeof("Bad Request\n") - 1,
-			.send_body = 1,
-			.preflight = 0,
-		});
-		return 1;
-	}
-
-	fr = item_path_for_id(it->path, id, u);
-	if (fr == 1) {
-		reply(c, hdr, &(struct response){
-			.status = HTTP_404,
-			.ctype = HTTP_TEXT,
-			.extra = NULL,
-			.body = "Not Found\n",
-			.len = sizeof("Not Found\n") - 1,
-			.send_body = 1,
-			.preflight = 0,
-		});
-		return 1;
-	}
-	if (fr < 0) {
-		reply(c, hdr, &(struct response){
-			.status = HTTP_500,
-			.ctype = HTTP_TEXT,
-			.extra = NULL,
-			.body = "Server Error\n",
-			.len = sizeof("Server Error\n") - 1,
-			.send_body = 1,
-			.preflight = 0,
-		});
-		return -1;
-	}
-
-	it->id = id;
-	return 0;
-}
-
-/**
  * @brief Parse HTTP Range header
  *
  * @param hdr Request header block
@@ -586,6 +531,279 @@ static void reply(int c, const char* hdr, const struct response* res)
 
 	if (res->send_body && res->body && res->len > 0)
 		(void)write_all(c, res->body, res->len);
+}
+
+/**
+ * @brief Dispatch request path to route handler
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param path Request path
+ * @param u Authenticated user filter
+ * @param head_only Whether request method is HEAD
+ *
+ * @return 0=Handled, -1=Failure
+ */
+static int route_dispatch(int c, const char* hdr, const char* path, const struct user* u, int head_only)
+{
+	if (strcmp(path, "/ping") == 0) {
+		LOG(verbose_log, "HTTP", "Route              /ping");
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
+		return 0;
+	}
+
+	if (strcmp(path, "/library") == 0)
+		return route_library(c, hdr, u, head_only);
+
+	if (strcmp(path, "/rescan") == 0)
+		return route_rescan(c, hdr, u);
+
+	if (strncmp(path, "/stream/", 8) == 0) {
+		struct item tmp;
+		char rel[4096];
+
+		LOG(verbose_log, "HTTP", "Route              /stream");
+		tmp.path = rel;
+
+		int rc = route_item_path(&tmp, path, "/stream/", u, c, hdr);
+		if (rc != 0)
+			return rc < 0 ? -1 : 0;
+
+		return stream_file(c, &tmp, hdr, head_only);
+	}
+
+	if (strncmp(path, "/meta/", 6) == 0) {
+		struct item tmp;
+		char rel[4096];
+		struct stat st;
+		const char* type;
+		struct json j;
+
+		LOG(verbose_log, "HTTP", "Route              /meta");
+		tmp.path = rel;
+
+		int rc = route_item_path(&tmp, path, "/meta/", u, c, hdr);
+		if (rc != 0)
+			return rc < 0 ? -1 : 0;
+
+		if (stat_item(&tmp, &st) < 0) {
+			reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
+			return 0;
+		}
+
+		type = mime_from_path(tmp.path);
+		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Failed\n", sizeof("JSON Failed\n") - 1, 1, 0 });
+			return -1;
+		}
+
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
+		json_free(&j);
+		return 0;
+	}
+
+	LOG(verbose_log, "HTTP", "Route not found    %s", path);
+	reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
+	return 0;
+}
+
+/**
+ * @brief Parse route id and resolve to an item
+ *
+ * @param it Output item
+ * @param path Request path
+ * @param prefix Route prefix
+ * @param u Authenticated user filter
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ *
+ * @return 0=Success, 1=Response sent, -1=Failure
+ */
+static int route_item_path(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr)
+{
+	uint64_t id;
+	int fr;
+
+	if (parse_hex64(path + strlen(prefix), &id) < 0) {
+		reply(c, hdr, &(struct response){
+			.status = HTTP_400,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Bad Request\n",
+			.len = sizeof("Bad Request\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
+		return 1;
+	}
+
+	fr = item_path_for_id(it->path, id, u);
+	if (fr == 1) {
+		reply(c, hdr, &(struct response){
+			.status = HTTP_404,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Not Found\n",
+			.len = sizeof("Not Found\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
+		return 1;
+	}
+	if (fr < 0) {
+		reply(c, hdr, &(struct response){
+			.status = HTTP_500,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Server Error\n",
+			.len = sizeof("Server Error\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
+		return -1;
+	}
+
+	it->id = id;
+	return 0;
+}
+
+/**
+ * @brief Handle /library route
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param u Authenticated user filter
+ * @param head_only Whether request method is HEAD
+ *
+ * @return 0=Handled, -1=Failure
+ */
+static int route_library(int c, const char* hdr, const struct user* u, int head_only)
+{
+	struct json j;
+	struct library view;
+
+	LOG(verbose_log, "HTTP", "Route              /library");
+	mtx_lock(&lib_lock);
+	memset(&view, 0, sizeof(view));
+
+	if (!u) {
+		view = lib;
+	}
+	else {
+		size_t i;
+
+		if (lib.len > 0) {
+			view.items = calloc(lib.len, sizeof(*view.items));
+			if (!view.items) {
+				mtx_unlock(&lib_lock);
+				reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
+				return -1;
+			}
+		}
+
+		for (i = 0; i < lib.len; i++) {
+			if (!user_allows_path(u, lib.items[i].path))
+				continue;
+			view.items[view.len++] = lib.items[i];
+		}
+		view.cap = view.len;
+	}
+
+	if (json_library(&j, &view) < 0) {
+		if (u)
+			free(view.items);
+
+		mtx_unlock(&lib_lock);
+		LOG(verbose_log, "JSON", "Encode     FAILED");
+		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Encode Failed\n", sizeof("JSON Encode Failed\n") - 1, 1, 0 });
+		return -1;
+	}
+
+	mtx_unlock(&lib_lock);
+	LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
+	reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
+	json_free(&j);
+
+	if (u)
+		free(view.items);
+	return 0;
+}
+
+/**
+ * @brief Handle request method and OPTIONS
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param method HTTP method
+ * @param head_only Output HEAD flag
+ *
+ * @return 0=Continue, 1=Response sent
+ */
+static int route_method(int c, const char* hdr, const char* method, int* head_only)
+{
+	if (strcmp(method, "GET") == 0) {
+		*head_only = 0;
+		return 0;
+	}
+	if (strcmp(method, "HEAD") == 0) {
+		*head_only = 1;
+		return 0;
+	}
+	if (strcmp(method, "OPTIONS") == 0) {
+		reply(c, hdr, &(struct response){ HTTP_204, NULL, NULL, NULL, 0, 0, 1 });
+		return 1;
+	}
+
+	LOG(verbose_log, "HTTP", "Method forbidden   %s", method);
+	reply(c, hdr, &(struct response){ HTTP_405, HTTP_TEXT, NULL, "Method Not Allowed\n", sizeof("Method Not Allowed\n") - 1, 1, 0 });
+	return 1;
+}
+
+/**
+ * @brief Handle /rescan route
+ *
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ * @param u Authenticated user
+ *
+ * @return 0=Handled, -1=Failure
+ */
+static int route_rescan(int c, const char* hdr, const struct user* u)
+{
+	struct timespec t0;
+	struct timespec t1;
+	size_t before = 0;
+	size_t after = 0;
+
+	LOG(verbose_log, "HTTP", "Route              /rescan");
+	if (users.len == 0) {
+		LOG(true, "HTTP", "Rescan forbidden   Auth disabled");
+		reply(c, hdr, &(struct response){ HTTP_403, HTTP_TEXT, NULL, "Forbidden\n", sizeof("Forbidden\n") - 1, 1, 0 });
+		return 0;
+	}
+
+	LOG(true, "SCAN", "Rescan requested   %s", u->name);
+	clock_gettime(CLOCK_MONOTONIC, &t0);
+
+	mtx_lock(&lib_lock);
+	before = lib.len;
+	LOG(verbose_log, "SCAN", "Rescan begin       %s (%zu items)", media_dir, before);
+	int ok = scan_library_rescan(&lib, media_dir);
+	after = lib.len;
+	mtx_unlock(&lib_lock);
+
+	clock_gettime(CLOCK_MONOTONIC, &t1);
+	long ms = (t1.tv_sec - t0.tv_sec) * 1000L + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
+
+	if (ok < 0) {
+		LOG(true, "SCAN", "Rescan FAILED      %s (%ld ms)", media_dir, ms);
+		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Rescan Failed\n", sizeof("Rescan Failed\n") - 1, 1, 0 });
+		return -1;
+	}
+
+	LOG(true, "SCAN", "Rescan OK          %zu -> %zu (%ld ms)", before, after, ms);
+	reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
+	return 0;
 }
 
 /**
@@ -800,27 +1018,8 @@ int http_handle(int c)
 	LOG(verbose_log, "HTTP", "Request            %s %s", method, path);
 
 	int head_only = 0;
-	if (strcmp(method, "GET") == 0) {
-		head_only = 0;
-	}
-	else if (strcmp(method, "HEAD") == 0) {
-		head_only = 1;
-	}
-	else if (strcmp(method, "OPTIONS") == 0) {
-		reply(c, hdr, &(struct response){ HTTP_204, NULL, NULL, NULL, 0, 0, 1 });
+	if (route_method(c, hdr, method, &head_only) != 0)
 		return 0;
-	}
-	else {
-		LOG(verbose_log, "HTTP", "Method forbidden   %s", method);
-		reply(c, hdr, &(struct response){ HTTP_405, HTTP_TEXT, NULL, "Method Not Allowed\n", sizeof("Method Not Allowed\n") - 1, 1, 0 });
-		return 0;
-	}
-
-	if (strcmp(path, "/ping") == 0) {
-		LOG(verbose_log, "HTTP", "Route              /ping");
-		reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
-		return 0;
-	}
 
 	if (users.len > 0) {
 		u = users_auth_from_hdr(hdr);
@@ -839,153 +1038,6 @@ int http_handle(int c)
 		}
 	}
 
-	if (strcmp(path, "/library") == 0) {
-		LOG(verbose_log, "HTTP", "Route              /library");
-
-		mtx_lock(&lib_lock);
-
-		struct json j;
-		struct library view;
-		memset(&view, 0, sizeof(view));
-
-		if (!u) {
-			view = lib;
-		}
-		else {
-			if (lib.len > 0) {
-				view.items = calloc(lib.len, sizeof(*view.items));
-				if (!view.items) {
-					mtx_unlock(&lib_lock);
-					reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
-					return -1;
-				}
-			}
-
-			for (size_t i = 0; i < lib.len; i++) {
-				if (!user_allows_path(u, lib.items[i].path))
-					continue;
-				view.items[view.len++] = lib.items[i];
-			}
-			view.cap = view.len;
-		}
-
-		if (json_library(&j, &view) < 0) {
-			if (u)
-				free(view.items);
-
-			mtx_unlock(&lib_lock);
-
-			LOG(verbose_log, "JSON", "Encode     FAILED");
-			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Encode Failed\n", sizeof("JSON Encode Failed\n") - 1, 1, 0 });
-			return -1;
-		}
-
-		mtx_unlock(&lib_lock);
-
-		LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
-		reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
-		json_free(&j);
-
-		if (u)
-			free(view.items);
-
-		return 0;
-	}
-
-	if (strcmp(path, "/rescan") == 0) {
-		LOG(verbose_log, "HTTP", "Route              /rescan");
-
-		if (users.len == 0) {
-			LOG(true, "HTTP", "Rescan forbidden   Auth disabled");
-			reply(c, hdr, &(struct response){ HTTP_403, HTTP_TEXT, NULL, "Forbidden\n", sizeof("Forbidden\n") - 1, 1, 0 });
-			return 0;
-		}
-
-		LOG(true, "SCAN", "Rescan requested   %s", u->name);
-
-		struct timespec t0;
-		struct timespec t1;
-		clock_gettime(CLOCK_MONOTONIC, &t0);
-
-		size_t before = 0;
-		size_t after  = 0;
-
-		mtx_lock(&lib_lock);
-
-		before = lib.len;
-		LOG(verbose_log, "SCAN", "Rescan begin       %s (%zu items)", media_dir, before);
-
-		int ok = scan_library_rescan(&lib, media_dir);
-
-		after = lib.len;
-
-		mtx_unlock(&lib_lock);
-
-		clock_gettime(CLOCK_MONOTONIC, &t1);
-
-		long ms = (t1.tv_sec - t0.tv_sec) * 1000L +
-			(t1.tv_nsec - t0.tv_nsec) / 1000000L;
-
-		if (ok < 0) {
-			LOG(true, "SCAN", "Rescan FAILED      %s (%ld ms)", media_dir, ms);
-			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Rescan Failed\n", sizeof("Rescan Failed\n") - 1, 1, 0 });
-			return -1;
-		}
-
-		LOG(true, "SCAN", "Rescan OK          %zu -> %zu (%ld ms)", before, after, ms);
-
-		reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
-		return 0;
-	}
-
-	if (strncmp(path, "/stream/", 8) == 0) {
-		LOG(verbose_log, "HTTP", "Route              /stream");
-
-		struct item tmp;
-		char rel[4096];
-		tmp.path = rel;
-
-		int rc = path_item(&tmp, path, "/stream/", u, c, hdr);
-		if (rc != 0)
-			return rc < 0 ? -1 : 0;
-
-		return stream_file(c, &tmp, hdr, head_only);
-	}
-
-	if (strncmp(path, "/meta/", 6) == 0) {
-		LOG(verbose_log, "HTTP", "Route              /meta");
-
-		struct item tmp;
-		char rel[4096];
-		tmp.path = rel;
-
-		int rc = path_item(&tmp, path, "/meta/", u, c, hdr);
-		if (rc != 0)
-			return rc < 0 ? -1 : 0;
-
-		struct stat st;
-		if (stat_item(&tmp, &st) < 0) {
-			reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
-			return 0;
-		}
-
-		const char* type = mime_from_path(tmp.path);
-
-		struct json j;
-		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
-			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Failed\n", sizeof("JSON Failed\n") - 1, 1, 0 });
-			return -1;
-		}
-
-		reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
-		json_free(&j);
-
-		return 0;
-	}
-
-	LOG(verbose_log, "HTTP", "Route not found    %s", path);
-	reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
-
-	return 0;
+	return route_dispatch(c, hdr, path, u, head_only);
 }
 
