@@ -21,6 +21,17 @@
 #include "users.h"
 #include "util.h"
 
+struct response {
+	const char* status;
+	const char* ctype;
+	const char* extra;
+	const void* body;
+
+	size_t      len;
+	int         send_body;
+	int         preflight;
+};
+
 static void auth_delay_sleep(void);
 static int cors_build(char* out, size_t outsz, const char* hdr, int preflight);
 static const struct item* find_item(uint64_t id);
@@ -30,11 +41,7 @@ static int parse_hex64(const char* s, uint64_t* out);
 static int path_item(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
-static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight);
-static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body);
-static void reply_preflight(int c, const char* hdr);
-static void reply_text(int c, const char* hdr, const char* status, const char* body);
-static void reply_unauth(int c, const char* hdr, int send_body);
+static void reply(int c, const char* hdr, const struct response* res);
 static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
@@ -336,17 +343,41 @@ static int path_item(struct item* it, const char* path, const char* prefix, cons
 	int fr;
 
 	if (parse_hex64(path + strlen(prefix), &id) < 0) {
-		reply_text(c, hdr, HTTP_400, "Bad Request\n");
+		reply(c, hdr, &(struct response){
+			.status = HTTP_400,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Bad Request\n",
+			.len = sizeof("Bad Request\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
 		return 1;
 	}
 
 	fr = item_path_for_id(it->path, id, u);
 	if (fr == 1) {
-		reply_text(c, hdr, HTTP_404, "Not Found\n");
+		reply(c, hdr, &(struct response){
+			.status = HTTP_404,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Not Found\n",
+			.len = sizeof("Not Found\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
 		return 1;
 	}
 	if (fr < 0) {
-		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		reply(c, hdr, &(struct response){
+			.status = HTTP_500,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Server Error\n",
+			.len = sizeof("Server Error\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		});
 		return -1;
 	}
 
@@ -507,20 +538,14 @@ static int read_request(int c, char* method, size_t msz, char* path, size_t psz,
  *
  * @param c Connected client socket file descriptor
  * @param hdr Request header block
- * @param status HTTP status line
- * @param ctype Content-Type header string
- * @param extra Extra response headers
- * @param body Response body
- * @param len Response body length
- * @param send_body Whether to send body bytes
- * @param preflight Whether this is a preflight response
+ * @param res Response descriptor
  */
-static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight)
+static void reply(int c, const char* hdr, const struct response* res)
 {
 	char resp[HTTP_RESP_MAX];
 	char cors[512];
 
-	(void)cors_build(cors, sizeof(cors), hdr, preflight);
+	(void)cors_build(cors, sizeof(cors), hdr, res->preflight);
 
 	int n = snprintf(
 		resp, sizeof(resp),
@@ -533,92 +558,34 @@ static void reply(int c, const char* hdr, const char* status, const char* ctype,
 		HTTP_CLOSE
 		"\r\n",
 
-		status,
+		res->status,
 		cors,
-		(ctype && ctype[0]) ? ctype : "",
-		(extra && extra[0]) ? extra : "",
-		len
+		(res->ctype && res->ctype[0]) ? res->ctype : "",
+		(res->extra && res->extra[0]) ? res->extra : "",
+		res->len
 	);
 
 	if (n < 0)
 		return;
 
 	if ((size_t)n >= sizeof(resp)) {
-		/* fail if header too large */
-		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		struct response err = {
+			.status = HTTP_500,
+			.ctype = HTTP_TEXT,
+			.extra = NULL,
+			.body = "Server Error\n",
+			.len = sizeof("Server Error\n") - 1,
+			.send_body = 1,
+			.preflight = 0,
+		};
+		reply(c, hdr, &err);
 		return;
 	}
 
 	(void)write_all(c, resp, (size_t)n);
 
-	if (send_body && body && len > 0)
-		(void)write_all(c, body, len);
-}
-
-/**
- * @brief Send JSON HTTP response
- *
- * @param c Connected client socket file descriptor
- * @param hdr Request header block
- * @param status HTTP status line
- * @param body Response body
- * @param len Response body length
- * @param send_body Whether to send body bytes
- */
-static void reply_json(int c, const char* hdr, const char* status, const char* body, size_t len, int send_body)
-{
-	reply(c, hdr, status, HTTP_JSON, NULL, body, len, send_body, 0);
-}
-
-/**
- * @brief Send CORS preflight response
- *
- * @param c Connected client socket file descriptor
- * @param hdr Request header block
- */
-static void reply_preflight(int c, const char* hdr)
-{
-	reply(c, hdr, HTTP_204, NULL, NULL, NULL, (size_t)0, 0, 1);
-}
-
-/**
- * @brief Send text/plain HTTP response
- *
- * @param c Connected client socket file descriptor
- * @param hdr Request header block
- * @param status HTTP status line
- * @param body Response body
- */
-static void reply_text(int c, const char* hdr, const char* status, const char* body)
-{
-	size_t len = strlen(body);
-	reply(c, hdr, status, HTTP_TEXT, NULL, body, len, 1, 0);
-}
-
-/**
- * @brief Send 401 Unauthorized response
- *
- * @param c Connected client socket file descriptor
- * @param hdr Request header block
- * @param send_body Whether to send body bytes
- */
-static void reply_unauth(int c, const char* hdr, int send_body)
-{
-	const char* body = "unauthorized\n";
-	size_t blen = strlen(body);
-
-	auth_delay_sleep();
-
-	reply(
-		c, hdr,
-		"HTTP/1.1 401 Unauthorized\r\n",
-		HTTP_TEXT,
-		"WWW-Authenticate: Basic realm=\"parados\"\r\n",
-		body,
-		blen,
-		send_body,
-		0
-	);
+	if (res->send_body && res->body && res->len > 0)
+		(void)write_all(c, res->body, res->len);
 }
 
 /**
@@ -662,7 +629,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	/* build absolute path */
 	if (join_path(full, sizeof(full), media_dir, it->path) < 0) {
 		LOG(verbose_log, "HTTP", "Stream FAILED      Path too long");
-		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 		return -1;
 	}
 
@@ -670,7 +637,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int fd = open(full, O_RDONLY);
 	if (fd < 0) {
 		LOG(verbose_log, "HTTP", "Open FAILED        %s", it->path);
-		reply_text(c, hdr, HTTP_404, "Not Found\n");
+		reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
 		return 0;
 	}
 
@@ -678,14 +645,14 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	struct stat st;
 	if (fstat(fd, &st) < 0) {
 		close(fd);
-		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 		return -1;
 	}
 
 	/* reject non-regular files */
 	if (!S_ISREG(st.st_mode)) {
 		close(fd);
-		reply_text(c, hdr, HTTP_404, "Not Found\n");
+		reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
 		return 0;
 	}
 
@@ -697,20 +664,20 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 	int partial = parse_range(hdr, total, &start, &end);
 	if (partial == RANGE_BAD) {
 		close(fd);
-		reply_text(c, hdr, HTTP_400, "Bad Range\n");
+		reply(c, hdr, &(struct response){ HTTP_400, HTTP_TEXT, NULL, "Bad Range\n", sizeof("Bad Range\n") - 1, 1, 0 });
 		return 0;
 	}
 
 	if (partial == RANGE_UNSAT) {
 		close(fd);
-		reply_text(c, hdr, HTTP_416, "Range Not Satisfiable\n");
+		reply(c, hdr, &(struct response){ HTTP_416, HTTP_TEXT, NULL, "Range Not Satisfiable\n", sizeof("Range Not Satisfiable\n") - 1, 1, 0 });
 		return 0;
 	}
 
 	if (partial == RANGE_OK) {
 		if (lseek(fd, (off_t)start, SEEK_SET) < 0) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "Server Error\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 			return -1;
 		}
 	}
@@ -723,7 +690,7 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 
 	if (snprintf(ctype, sizeof(ctype), HTTP_CTYPE, type) >= (int)sizeof(ctype)) {
 		close(fd);
-		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 		return -1;
 	}
 
@@ -736,21 +703,37 @@ static int stream_file(int c, const struct item* it, const char* hdr, int head_o
 			start, end, total
 		) >= (int)sizeof(extra)) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "Server Error\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 			return -1;
 		}
 
-		reply(c, hdr, HTTP_206, ctype, extra, NULL, len, 0, 0);
+		reply(c, hdr, &(struct response){
+			.status = HTTP_206,
+			.ctype = ctype,
+			.extra = extra,
+			.body = NULL,
+			.len = len,
+			.send_body = 0,
+			.preflight = 0,
+		});
 	}
 	else {
 		/* non-partial */
 		if (snprintf(extra, sizeof(extra), HTTP_RANGE) >= (int)sizeof(extra)) {
 			close(fd);
-			reply_text(c, hdr, HTTP_500, "Server Error\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 			return -1;
 		}
 
-		reply(c, hdr, HTTP_200, ctype, extra, NULL, len, 0, 0);
+		reply(c, hdr, &(struct response){
+			.status = HTTP_200,
+			.ctype = ctype,
+			.extra = extra,
+			.body = NULL,
+			.len = len,
+			.send_body = 0,
+			.preflight = 0,
+		});
 	}
 
 	/* HEAD: no body */
@@ -805,14 +788,13 @@ int http_handle(int c)
 	char method[16];
 	char path[1024];
 	char hdr[HTTP_REQ_MAX];
-
 	const struct user* u = NULL;
 	method[0] = '\0';
 	path[0] = '\0';
 	hdr[0] = '\0';
 
 	if (read_request(c, method, sizeof(method), path, sizeof(path), hdr, sizeof(hdr)) < 0) {
-		reply_text(c, hdr, HTTP_400, "Bad Request\n");
+		reply(c, hdr, &(struct response){ HTTP_400, HTTP_TEXT, NULL, "Bad Request\n", sizeof("Bad Request\n") - 1, 1, 0 });
 		return -1;
 	}
 	LOG(verbose_log, "HTTP", "Request            %s %s", method, path);
@@ -825,25 +807,34 @@ int http_handle(int c)
 		head_only = 1;
 	}
 	else if (strcmp(method, "OPTIONS") == 0) {
-		reply_preflight(c, hdr);
+		reply(c, hdr, &(struct response){ HTTP_204, NULL, NULL, NULL, 0, 0, 1 });
 		return 0;
 	}
 	else {
 		LOG(verbose_log, "HTTP", "Method forbidden   %s", method);
-		reply_text(c, hdr, HTTP_405, "Method Not Allowed\n");
+		reply(c, hdr, &(struct response){ HTTP_405, HTTP_TEXT, NULL, "Method Not Allowed\n", sizeof("Method Not Allowed\n") - 1, 1, 0 });
 		return 0;
 	}
 
 	if (strcmp(path, "/ping") == 0) {
 		LOG(verbose_log, "HTTP", "Route              /ping");
-		reply_text(c, hdr, HTTP_200, "OK\n");
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
 		return 0;
 	}
 
 	if (users.len > 0) {
 		u = users_auth_from_hdr(hdr);
 		if (!u) {
-			reply_unauth(c, hdr, !head_only);
+			auth_delay_sleep();
+			reply(c, hdr, &(struct response){
+				.status = "HTTP/1.1 401 Unauthorized\r\n",
+				.ctype = HTTP_TEXT,
+				.extra = "WWW-Authenticate: Basic realm=\"parados\"\r\n",
+				.body = "unauthorized\n",
+				.len = sizeof("unauthorized\n") - 1,
+				.send_body = !head_only,
+				.preflight = 0,
+			});
 			return 0;
 		}
 	}
@@ -865,7 +856,7 @@ int http_handle(int c)
 				view.items = calloc(lib.len, sizeof(*view.items));
 				if (!view.items) {
 					mtx_unlock(&lib_lock);
-					reply_text(c, hdr, HTTP_500, "Server Error\n");
+					reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 					return -1;
 				}
 			}
@@ -885,15 +876,14 @@ int http_handle(int c)
 			mtx_unlock(&lib_lock);
 
 			LOG(verbose_log, "JSON", "Encode     FAILED");
-			reply_text(c, hdr, HTTP_500, "JSON Encode Failed\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Encode Failed\n", sizeof("JSON Encode Failed\n") - 1, 1, 0 });
 			return -1;
 		}
 
 		mtx_unlock(&lib_lock);
 
 		LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
-
-		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
 		json_free(&j);
 
 		if (u)
@@ -907,7 +897,7 @@ int http_handle(int c)
 
 		if (users.len == 0) {
 			LOG(true, "HTTP", "Rescan forbidden   Auth disabled");
-			reply_text(c, hdr, HTTP_403, "Forbidden\n");
+			reply(c, hdr, &(struct response){ HTTP_403, HTTP_TEXT, NULL, "Forbidden\n", sizeof("Forbidden\n") - 1, 1, 0 });
 			return 0;
 		}
 
@@ -938,13 +928,13 @@ int http_handle(int c)
 
 		if (ok < 0) {
 			LOG(true, "SCAN", "Rescan FAILED      %s (%ld ms)", media_dir, ms);
-			reply_text(c, hdr, HTTP_500, "Rescan Failed\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Rescan Failed\n", sizeof("Rescan Failed\n") - 1, 1, 0 });
 			return -1;
 		}
 
 		LOG(true, "SCAN", "Rescan OK          %zu -> %zu (%ld ms)", before, after, ms);
 
-		reply_text(c, hdr, HTTP_200, "OK\n");
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_TEXT, NULL, "OK\n", sizeof("OK\n") - 1, 1, 0 });
 		return 0;
 	}
 
@@ -975,7 +965,7 @@ int http_handle(int c)
 
 		struct stat st;
 		if (stat_item(&tmp, &st) < 0) {
-			reply_text(c, hdr, HTTP_404, "Not Found\n");
+			reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
 			return 0;
 		}
 
@@ -983,18 +973,19 @@ int http_handle(int c)
 
 		struct json j;
 		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
-			reply_text(c, hdr, HTTP_500, "JSON Failed\n");
+			reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Failed\n", sizeof("JSON Failed\n") - 1, 1, 0 });
 			return -1;
 		}
 
-		reply_json(c, hdr, HTTP_200, j.buf, j.len, !head_only);
+		reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
 		json_free(&j);
 
 		return 0;
 	}
 
 	LOG(verbose_log, "HTTP", "Route not found    %s", path);
-	reply_text(c, hdr, HTTP_404, "Not Found\n");
+	reply(c, hdr, &(struct response){ HTTP_404, HTTP_TEXT, NULL, "Not Found\n", sizeof("Not Found\n") - 1, 1, 0 });
 
 	return 0;
 }
+
