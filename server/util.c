@@ -6,6 +6,19 @@
 
 #include "util.h"
 
+static int ci_key_match(const char* a, const char* b, size_t n);
+
+static int ci_key_match(const char* a, const char* b, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		unsigned char ca = (unsigned char)a[i];
+		unsigned char cb = (unsigned char)b[i];
+		if (tolower(ca) != tolower(cb))
+			return 0;
+	}
+	return 1;
+}
+
 const char* cistrstr(const char* hay, const char* nee)
 {
 	size_t nl = strlen(nee);
@@ -33,17 +46,6 @@ const char* cistrstr(const char* hay, const char* nee)
 	}
 
 	return NULL;
-}
-
-static int ci_key_match(const char* a, const char* b, size_t n)
-{
-	for (size_t i = 0; i < n; i++) {
-		unsigned char ca = (unsigned char)a[i];
-		unsigned char cb = (unsigned char)b[i];
-		if (tolower(ca) != tolower(cb))
-			return 0;
-	}
-	return 1;
 }
 
 int hdr_get_value(char out[512], const char* hdr, const char* key)

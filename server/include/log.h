@@ -6,11 +6,11 @@
 #include <stdio.h>
 #include <time.h>
 
-/*
-	Format local time as "dd/mm/YYYY HH:MM:SS"
-		@param  out  Output buffer (must be at least 20 bytes)
-		@return None
-*/
+/**
+ * @brief Format local time as "dd/mm/YYYY HH:MM:SS"
+ *
+ * @param out Output buffer (must be at least 20 bytes)
+ */
 static inline void log_datetime(char out[20])
 {
 	time_t t = time(NULL);
@@ -20,16 +20,16 @@ static inline void log_datetime(char out[20])
 	strftime(out, 20, "%d/%m/%Y %H:%M:%S", &tmv);
 }
 
-/*
-	Print log message if verbose=true
-		@param verbose  Whether to emit the log line
-		@param tag      Short tag (e.g. "HTTP", "CONF")
-		@param fmt      printf-style format string
-		@param ap       va_list
-		@return         None
-
-	In DEBUG builds, also prints [file : line : func()]
-*/
+/**
+ * @brief Print log message if verbose=true
+ *
+ * @note In DEBUG builds, also prints [file : line : func()]
+ *
+ * @param verbose Whether to emit the log line
+ * @param tag Short tag (e.g. "HTTP", "CONF")
+ * @param fmt printf-style format string
+ * @param ap va_list
+ */
 static inline void log_vprint(bool verbose, const char* tag,
 #if defined(DEBUG)
 		const char* file, int line, const char* func,
@@ -52,13 +52,13 @@ static inline void log_vprint(bool verbose, const char* tag,
 	fputc('\n', stderr);
 }
 
-/*
-	Print a log message if verbose=true
-		@param verbose  Whether to emit the log line
-		@param tag      Short tag (e.g. "HTTP", "CONF")
-		@param fmt      printf-style format string
-		@return         None
-*/
+/**
+ * @brief Print a log message if verbose=true
+ *
+ * @param verbose Whether to emit the log line
+ * @param tag Short tag (e.g. "HTTP", "CONF")
+ * @param fmt printf-style format string
+ */
 static inline void log_print(bool verbose, const char* tag,
 #if defined(DEBUG)
 		const char* file, int line, const char* func,
@@ -77,12 +77,13 @@ static inline void log_print(bool verbose, const char* tag,
 	va_end(ap);
 }
 
-/*
-	Log macro
-		@param verbose_log  Whether to emit the log line
-		@param tag          Short tag string
-		@param fmt          printf-style format string
-*/
+/**
+ * @brief Log macro
+ *
+ * @param verbose_log Whether to emit the log line
+ * @param tag Short tag string
+ * @param fmt printf-style format string
+ */
 #if defined(DEBUG)
 #define LOG(verbose_log, tag, fmt, ...) \
 	log_print((verbose_log), (tag), __FILE__, __LINE__, __func__, (fmt), ##__VA_ARGS__)
