@@ -27,6 +27,7 @@ static const struct item* find_item(uint64_t id);
 static int item_path_for_id(char out[4096], uint64_t id, const struct user* u);
 static const char* mime_from_path(const char* path);
 static int parse_hex64(const char* s, uint64_t* out);
+static int path_item(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr);
 static int parse_range(const char* hdr, size_t total, size_t* start, size_t* end);
 static int read_request(int c, char* method, size_t msz, char* path, size_t psz, char* hdr, size_t hsz);
 static void reply(int c, const char* hdr, const char* status, const char* ctype, const char* extra, const void* body, size_t len, int send_body, int preflight);
@@ -314,6 +315,42 @@ static int parse_hex64(const char* s, uint64_t* out)
 		return -1;
 
 	*out = (uint64_t)v;
+	return 0;
+}
+
+/**
+ * @brief Parse route id and resolve to an item
+ *
+ * @param it Output item
+ * @param path Request path
+ * @param prefix Route prefix
+ * @param u Authenticated user filter
+ * @param c Connected client socket file descriptor
+ * @param hdr Request header block
+ *
+ * @return 0=Success, 1=Response sent, -1=Failure
+ */
+static int path_item(struct item* it, const char* path, const char* prefix, const struct user* u, int c, const char* hdr)
+{
+	uint64_t id;
+	int fr;
+
+	if (parse_hex64(path + strlen(prefix), &id) < 0) {
+		reply_text(c, hdr, HTTP_400, "Bad Request\n");
+		return 1;
+	}
+
+	fr = item_path_for_id(it->path, id, u);
+	if (fr == 1) {
+		reply_text(c, hdr, HTTP_404, "Not Found\n");
+		return 1;
+	}
+	if (fr < 0) {
+		reply_text(c, hdr, HTTP_500, "Server Error\n");
+		return -1;
+	}
+
+	it->id = id;
 	return 0;
 }
 
@@ -914,26 +951,13 @@ int http_handle(int c)
 	if (strncmp(path, "/stream/", 8) == 0) {
 		LOG(verbose_log, "HTTP", "Route              /stream");
 
-		uint64_t id;
-		if (parse_hex64(path + 8, &id) < 0) {
-			reply_text(c, hdr, HTTP_400, "Bad Request\n");
-			return 0;
-		}
-
-		char rel[4096];
-		int fr = item_path_for_id(rel, id, u);
-		if (fr == 1) {
-			reply_text(c, hdr, HTTP_404, "Not Found\n");
-			return 0;
-		}
-		if (fr < 0) {
-			reply_text(c, hdr, HTTP_500, "Server Error\n");
-			return -1;
-		}
-
 		struct item tmp;
-		tmp.id = id;
+		char rel[4096];
 		tmp.path = rel;
+
+		int rc = path_item(&tmp, path, "/stream/", u, c, hdr);
+		if (rc != 0)
+			return rc < 0 ? -1 : 0;
 
 		return stream_file(c, &tmp, hdr, head_only);
 	}
@@ -941,27 +965,13 @@ int http_handle(int c)
 	if (strncmp(path, "/meta/", 6) == 0) {
 		LOG(verbose_log, "HTTP", "Route              /meta");
 
-		uint64_t id;
-		if (parse_hex64(path + 6, &id) < 0) {
-			reply_text(c, hdr, HTTP_400, "Bad Request\n");
-			return 0;
-		}
-
-		char rel[4096];
-		int fr = item_path_for_id(rel, id, u);
-		if (fr == 1) {
-			reply_text(c, hdr, HTTP_404, "Not Found\n");
-			return 0;
-		}
-
-		if (fr < 0) {
-			reply_text(c, hdr, HTTP_500, "Server Error\n");
-			return -1;
-		}
-
 		struct item tmp;
-		tmp.id = id;
+		char rel[4096];
 		tmp.path = rel;
+
+		int rc = path_item(&tmp, path, "/meta/", u, c, hdr);
+		if (rc != 0)
+			return rc < 0 ? -1 : 0;
 
 		struct stat st;
 		if (stat_item(&tmp, &st) < 0) {
@@ -969,7 +979,7 @@ int http_handle(int c)
 			return 0;
 		}
 
-		const char* type = mime_from_path(rel);
+		const char* type = mime_from_path(tmp.path);
 
 		struct json j;
 		if (json_meta(&j, &tmp, (size_t)st.st_size, (long)st.st_mtime, type) < 0) {
@@ -988,4 +998,3 @@ int http_handle(int c)
 
 	return 0;
 }
-
