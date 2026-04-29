@@ -5,11 +5,22 @@ A simple home media server for UNIX systems.
 
 ### Build
 ```sh
-make build # or debug
-cp parados.conf /etc/
-# ./parados -v
+make release # or debug
+make install-conf
+./parados -v
 ./parados
 ```
+
+### Startup Scripts
+Parados has platform specific init scripts to launch it. As
+of now, there is: OpenBSD(rcctl)  
+startup scripts.  
+
+```sh
+make install-rcctl # Change to init platform script
+```
+> If you want to contribute more init scripts, feel free to
+> do so; any help appreciated!
 
 ### Documentation
 All documentation can be found in [docs/](docs/)
