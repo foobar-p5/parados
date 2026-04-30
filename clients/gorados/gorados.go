@@ -1,5 +1,5 @@
 // gorados
-// is a Go-Web frontendfor the
+// is a Go-Web frontend for the
 // parados HTTP media server
 
 package main
