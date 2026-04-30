@@ -1,0 +1,10 @@
+#!/sbin/openrc-run
+
+name="parados"
+command="/usr/local/bin/parados"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need net
+}
