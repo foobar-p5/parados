@@ -17,7 +17,7 @@ of now, there is: OpenBSD(rcctl)
 startup scripts.
 
 ```sh
-make install-rcctl # Change to init platform script
+make install-rcctl # Change to init platform script (available: install-rcctl, install-openrc)
 ```
 > If you want to contribute more init scripts, feel free to
 > do so; any help appreciated!
