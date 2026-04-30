@@ -13,11 +13,11 @@ make install-conf
 
 ### Startup Scripts
 Parados has platform specific init scripts to launch it. As
-of now, there is: OpenBSD(rcctl)
+of now, there is: OpenBSD(rcctl), OpenRC(rc-service)
 startup scripts.
 
 ```sh
-make install-rcctl # Change to init platform script (available: install-rcctl, install-openrc)
+make install-rcctl # Change to init platform script
 ```
 > If you want to contribute more init scripts, feel free to
 > do so; any help appreciated!
