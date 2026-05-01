@@ -52,6 +52,9 @@ install-conf:
 install-rcctl:
 	install -m 0555 scripts/openbsd-parados.sh /etc/rc.d/parados
 
+install-openrc:
+	install -m 0555 scripts/openrc-parados /etc/init.d/parados
+
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(OUT)
 	rm -f $(DESTDIR)$(MAN1DIR)/parados.1
@@ -62,5 +65,5 @@ compile_flags:
 	rm -f compile_flags.txt
 	for f in ${CPPFLAGS} ${CFLAGS}; do echo $$f >> compile_flags.txt; done
 
-.PHONY: all release debug clean install install-conf install-rcctl uninstall compile_flags
+.PHONY: all release debug clean install install-conf install-rcctl install-openrc uninstall compile_flags
 
