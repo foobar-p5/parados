@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +11,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <tinycthread.h>
 #include <unistd.h>
 
 #include "config.h"
@@ -51,7 +51,7 @@ static int stat_item(const struct item* it, struct stat* st);
 static int stream_file(int c, const struct item* it, const char* hdr, int head_only);
 
 extern struct library lib;
-extern mtx_t lib_lock;
+extern pthread_mutex_t lib_lock;
 
 /**
  * @brief Sleep for configured auth delay
@@ -213,7 +213,7 @@ static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
 
 	out[0] = '\0';
 
-	mtx_lock(&lib_lock);
+	(void)pthread_mutex_lock(&lib_lock);
 
 	const struct item* it = find_item(id);
 	if (!it) {
@@ -234,7 +234,7 @@ static int item_path_for_id(char out[4096], uint64_t id, const struct user* u)
 	ret = 0;
 
 out:
-	mtx_unlock(&lib_lock);
+	(void)pthread_mutex_unlock(&lib_lock);
 	return ret; /* 0 ok, 1 not found, -1 error */
 }
 
@@ -683,7 +683,7 @@ static int route_library(int c, const char* hdr, const struct user* u, int head_
 	struct library view;
 
 	LOG(verbose_log, "HTTP", "Route              /library");
-	mtx_lock(&lib_lock);
+	(void)pthread_mutex_lock(&lib_lock);
 	memset(&view, 0, sizeof(view));
 
 	if (!u) {
@@ -695,7 +695,7 @@ static int route_library(int c, const char* hdr, const struct user* u, int head_
 		if (lib.len > 0) {
 			view.items = calloc(lib.len, sizeof(*view.items));
 			if (!view.items) {
-				mtx_unlock(&lib_lock);
+				(void)pthread_mutex_unlock(&lib_lock);
 				reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "Server Error\n", sizeof("Server Error\n") - 1, 1, 0 });
 				return -1;
 			}
@@ -713,13 +713,13 @@ static int route_library(int c, const char* hdr, const struct user* u, int head_
 		if (u)
 			free(view.items);
 
-		mtx_unlock(&lib_lock);
+		(void)pthread_mutex_unlock(&lib_lock);
 		LOG(verbose_log, "JSON", "Encode     FAILED");
 		reply(c, hdr, &(struct response){ HTTP_500, HTTP_TEXT, NULL, "JSON Encode Failed\n", sizeof("JSON Encode Failed\n") - 1, 1, 0 });
 		return -1;
 	}
 
-	mtx_unlock(&lib_lock);
+	(void)pthread_mutex_unlock(&lib_lock);
 	LOG(verbose_log, "JSON", "Encoded bytes      %zu bytes", j.len);
 	reply(c, hdr, &(struct response){ HTTP_200, HTTP_JSON, NULL, j.buf, j.len, !head_only, 0 });
 	json_free(&j);
@@ -785,12 +785,12 @@ static int route_rescan(int c, const char* hdr, const struct user* u)
 	LOG(true, "SCAN", "Rescan requested   %s", u->name);
 	clock_gettime(CLOCK_MONOTONIC, &t0);
 
-	mtx_lock(&lib_lock);
+	(void)pthread_mutex_lock(&lib_lock);
 	before = lib.len;
 	LOG(verbose_log, "SCAN", "Rescan begin       %s (%zu items)", media_dir, before);
 	int ok = scan_library_rescan(&lib, media_dir);
 	after = lib.len;
-	mtx_unlock(&lib_lock);
+	(void)pthread_mutex_unlock(&lib_lock);
 
 	clock_gettime(CLOCK_MONOTONIC, &t1);
 	long ms = (t1.tv_sec - t0.tv_sec) * 1000L + (t1.tv_nsec - t0.tv_nsec) / 1000000L;

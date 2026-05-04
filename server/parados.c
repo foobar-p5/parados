@@ -26,7 +26,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <tinycthread.h>
+#include <pthread.h>
 
 #include "config.h"
 #include "http.h"
@@ -39,7 +39,7 @@
 #endif /* GIT_VER */
 
 static void apply_rlimits(void);
-static int client_thread(void* arg);
+static void* client_thread(void* arg);
 static void fd_set_cloexec(int fd);
 static void sock_set_timeouts(int fd);
 static void release_slot(void);
@@ -51,8 +51,8 @@ void setup(void);
 
 static int sock;
 struct library lib;
-mtx_t lib_lock;
-static mtx_t slots_lock;
+pthread_mutex_t lib_lock;
+static pthread_mutex_t slots_lock;
 static int slots_available;
 
 /**
@@ -75,10 +75,8 @@ static void apply_rlimits(void)
  * @brief Handle a single accepted client connection
  *
  * @param arg Client socket cast through void*
- *
- * @return 0=Success
  */
-static int client_thread(void* arg)
+static void* client_thread(void* arg)
 {
 	int c = (int)(intptr_t)arg;
 
@@ -88,7 +86,7 @@ static int client_thread(void* arg)
 	close(c);
 
 	release_slot();
-	return 0;
+	return NULL;
 }
 
 /**
@@ -123,13 +121,13 @@ static void sock_set_timeouts(int fd)
  */
 static void release_slot(void)
 {
-	if (mtx_lock(&slots_lock) != thrd_success)
+	if (pthread_mutex_lock(&slots_lock) != 0)
 		return;
 
 	if (slots_available < max_clients)
 		slots_available++;
 
-	(void)mtx_unlock(&slots_lock);
+	(void)pthread_mutex_unlock(&slots_lock);
 }
 
 /**
@@ -141,7 +139,7 @@ static int try_acquire_slot(void)
 {
 	int ok = 0;
 
-	if (mtx_lock(&slots_lock) != thrd_success)
+	if (pthread_mutex_lock(&slots_lock) != 0)
 		return -1;
 
 	if (slots_available > 0) {
@@ -149,7 +147,7 @@ static int try_acquire_slot(void)
 		ok = 1;
 	}
 
-	(void)mtx_unlock(&slots_lock);
+	(void)pthread_mutex_unlock(&slots_lock);
 	return ok;
 }
 
@@ -192,16 +190,16 @@ void run(void)
 		}
 
 		LOG(verbose_log, "CORE", "Connection         Accepted");
-		thrd_t t;
-		int err = thrd_create(&t, client_thread, (void*)(intptr_t)c);
-		if (err != thrd_success) {
-			LOG(true, "CORE", "thrd_create FAILED  %d", err);
+		pthread_t t;
+		int err = pthread_create(&t, NULL, client_thread, (void*)(intptr_t)c);
+		if (err != 0) {
+			LOG(true, "CORE", "pthread_create FAILED  %d", err);
 			close(c);
 			release_slot();
 			continue;
 		}
 
-		(void)thrd_detach(t);
+		(void)pthread_detach(t);
 	}
 }
 
@@ -212,11 +210,11 @@ void setup(void)
 	config_load();
 	apply_rlimits();
 
-	if (mtx_init(&lib_lock, mtx_plain) != thrd_success)
-		die("mtx_init", EXIT_FAILURE);
+	if (pthread_mutex_init(&lib_lock, NULL) != 0)
+		die("pthread_mutex_init", EXIT_FAILURE);
 
-	if (mtx_init(&slots_lock, mtx_plain) != thrd_success)
-		die("mtx_init", EXIT_FAILURE);
+	if (pthread_mutex_init(&slots_lock, NULL) != 0)
+		die("pthread_mutex_init", EXIT_FAILURE);
 	slots_available = max_clients;
 
 	int ret = 1;

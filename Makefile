@@ -3,8 +3,15 @@ CC = cc
 VER = 2.26
 GIT_VER != git describe --always --tags 2>/dev/null || echo unknown
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L -DGIT_VER=\"$(GIT_VER)\" -DVERSION=\"$(VER)\"
-CFLAGS = -std=c99 -Wall -Wextra -Iserver/include -Iexternal -pthread
-SRC = server/*.c external/tinycthread.c
+CFLAGS = -std=c99 -Wall -Wextra -Iserver/include -pthread
+SRC = server/config.c \
+      server/http.c \
+      server/json.c \
+      server/parados.c \
+      server/scan.c \
+      server/users.c \
+      server/util.c
+
 OUT = parados
 
 # Install Paths
