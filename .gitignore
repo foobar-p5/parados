@@ -9,4 +9,5 @@ parados
 # clients
 !clients/shrados/*
 clients/gorados/gorados
+*.dSYM
 
