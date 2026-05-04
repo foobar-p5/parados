@@ -1,5 +1,5 @@
 # C Stuff
-CC ?= cc
+CC = cc
 VER = 2.26
 GIT_VER != git describe --always --tags 2>/dev/null || echo unknown
 CPPFLAGS = -D_POSIX_C_SOURCE=200809L -DGIT_VER=\"$(GIT_VER)\" -DVERSION=\"$(VER)\"
@@ -8,13 +8,13 @@ SRC = server/*.c external/tinycthread.c
 OUT = parados
 
 # Install Paths
-ETCDIR  ?= /etc
-PREFIX  ?= /usr/local
-BINDIR  ?= $(PREFIX)/bin
-MANDIR  ?= $(PREFIX)/man
-MAN1DIR ?= $(MANDIR)/man1
-MAN5DIR ?= $(MANDIR)/man5
-MAN7DIR ?= $(MANDIR)/man7
+ETCDIR  = /etc
+PREFIX  = /usr/local
+BINDIR  = $(PREFIX)/bin
+MANDIR  = $(PREFIX)/man
+MAN1DIR = $(MANDIR)/man1
+MAN5DIR = $(MANDIR)/man5
+MAN7DIR = $(MANDIR)/man7
 
 all: release
 
